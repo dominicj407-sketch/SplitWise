@@ -1,0 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Discord-like Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background-color: #2f3136; /* Dark track */
+}
+
+::-webkit-scrollbar-track {
+  border-radius: 4px;
+  background-color: #2f3136;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background-color: #202225; /* Darker thumb */
+}
+
+/* Light mode scrollbar overrides handled by theme context usually, 
+   but for simplicity we can use a neutral dark scrollbar or CSS variables if needed.
+   For now, a dark scrollbar looks okay on light mode too, or we can leave it default.
+   Let's stick to a dark one as it looks "gamer" / Discord-y.
+*/

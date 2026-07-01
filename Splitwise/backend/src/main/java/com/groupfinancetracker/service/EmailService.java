@@ -1,0 +1,165 @@
+package com.groupfinancetracker.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class EmailService {
+
+    private final JavaMailSender mailSender;
+
+    @Value("${spring.mail.username}")
+    private String fromEmail;
+
+    @Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
+    // ─── Welcome + Master Password ────────────────────────────────────────────
+
+    @Async
+    public void sendWelcomeWithMasterPassword(String name, String toEmail, String masterPassword) {
+        try {
+            MimeMessage msg = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(toEmail);
+            helper.setSubject("Welcome to SplitWise — Your Master Password 🔑");
+            helper.setText(buildWelcomeHtml(name, masterPassword), true);
+            mailSender.send(msg);
+            log.info("[Email] Welcome+master-password sent to {}", toEmail);
+        } catch (MessagingException e) {
+            log.error("[Email] Failed to send welcome email to {}: {}", toEmail, e.getMessage());
+        }
+    }
+
+    // ─── Password Changed Notification ────────────────────────────────────────
+
+    @Async
+    public void sendPasswordChangedNotification(String name, String toEmail) {
+        try {
+            MimeMessage msg = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(toEmail);
+            helper.setSubject("Your SplitWise Password Has Been Changed");
+            helper.setText(buildPasswordChangedHtml(name), true);
+            mailSender.send(msg);
+            log.info("[Email] Password-changed notification sent to {}", toEmail);
+        } catch (MessagingException e) {
+            log.error("[Email] Failed to send password-changed email to {}: {}", toEmail, e.getMessage());
+        }
+    }
+
+    // ─── HTML Templates ───────────────────────────────────────────────────────
+
+    private String buildWelcomeHtml(String name, String masterPassword) {
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="margin:0;padding:0;background:#f6f8fa;font-family:'Segoe UI',Arial,sans-serif;">
+              <table width="100%%" cellpadding="0" cellspacing="0" style="background:#f6f8fa;padding:40px 0;">
+                <tr><td align="center">
+                  <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+                    <!-- Header -->
+                    <tr>
+                      <td style="background:linear-gradient(135deg,#6366f1 0%%,#8b5cf6 100%%);padding:40px 48px;text-align:center;">
+                        <div style="font-size:36px;margin-bottom:8px;">💸</div>
+                        <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:-0.5px;">Welcome to SplitWise!</h1>
+                        <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:15px;">Your smart expense splitting companion</p>
+                      </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                      <td style="padding:40px 48px;">
+                        <p style="color:#374151;font-size:16px;margin:0 0 24px;">Hi <strong>%s</strong>,</p>
+                        <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
+                          Your account has been created successfully. Below is your <strong>Master Password</strong> — keep it safe! You'll need it to reset your login password if you ever forget it.
+                        </p>
+                        <!-- Master Password Box -->
+                        <div style="background:#f0f4ff;border:2px dashed #6366f1;border-radius:12px;padding:24px;text-align:center;margin:0 0 28px;">
+                          <p style="margin:0 0 8px;color:#6366f1;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Your Master Password</p>
+                          <p style="margin:0;font-family:'Courier New',monospace;font-size:28px;font-weight:700;color:#1f2937;letter-spacing:4px;">%s</p>
+                        </div>
+                        <!-- Warning -->
+                        <div style="background:#fffbeb;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;padding:16px 20px;margin:0 0 28px;">
+                          <p style="margin:0;color:#92400e;font-size:14px;line-height:1.5;">
+                            ⚠️ <strong>Save this now.</strong> This master password is emailed only once and is not stored anywhere in plain text. If you lose it, you will need to contact support.
+                          </p>
+                        </div>
+                        <p style="color:#6b7280;font-size:14px;line-height:1.6;margin:0 0 28px;">
+                          To reset your password, visit the <strong>Forgot Password</strong> page on SplitWise and enter your email, this master password, and your new password.
+                        </p>
+                        <div style="text-align:center;">
+                          <a href="%s/login" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">Go to SplitWise →</a>
+                        </div>
+                      </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                      <td style="background:#f9fafb;padding:24px 48px;text-align:center;border-top:1px solid #e5e7eb;">
+                        <p style="margin:0;color:#9ca3af;font-size:12px;">© 2025 SplitWise. This is an automated email, please do not reply.</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body>
+            </html>
+            """.formatted(name, masterPassword, frontendUrl);
+    }
+
+    private String buildPasswordChangedHtml(String name) {
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="margin:0;padding:0;background:#f6f8fa;font-family:'Segoe UI',Arial,sans-serif;">
+              <table width="100%%" cellpadding="0" cellspacing="0" style="background:#f6f8fa;padding:40px 0;">
+                <tr><td align="center">
+                  <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+                    <tr>
+                      <td style="background:linear-gradient(135deg,#10b981 0%%,#059669 100%%);padding:40px 48px;text-align:center;">
+                        <div style="font-size:36px;margin-bottom:8px;">✅</div>
+                        <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">Password Changed Successfully</h1>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:40px 48px;">
+                        <p style="color:#374151;font-size:16px;margin:0 0 20px;">Hi <strong>%s</strong>,</p>
+                        <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+                          Your SplitWise password was successfully changed. You can now log in with your new password.
+                        </p>
+                        <div style="background:#ecfdf5;border-left:4px solid #10b981;border-radius:0 8px 8px 0;padding:16px 20px;margin:0 0 28px;">
+                          <p style="margin:0;color:#065f46;font-size:14px;">
+                            🔒 If you did <strong>not</strong> make this change, please contact support immediately.
+                          </p>
+                        </div>
+                        <div style="text-align:center;">
+                          <a href="%s/login" style="display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">Log In →</a>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="background:#f9fafb;padding:24px 48px;text-align:center;border-top:1px solid #e5e7eb;">
+                        <p style="margin:0;color:#9ca3af;font-size:12px;">© 2025 SplitWise. This is an automated email, please do not reply.</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body>
+            </html>
+            """.formatted(name, frontendUrl);
+    }
+}
