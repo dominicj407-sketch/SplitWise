@@ -95,11 +95,17 @@ public class PaymentService {
         return shareService.toDto(s);
     }
 
+    private boolean isMember(Group group, Long userId) {
+        if (userId == null) return false;
+        return group.getCreator().getId().equals(userId)
+                || group.getMembers().stream().anyMatch(u -> u.getId().equals(userId));
+    }
+
     /**
      * Records a settlement (repayment) of {@code amount} from debtor to creditor in the ledger.
      * Scoped to an event when {@code eventId} is provided, otherwise to the group.
      */
-    public void settlePairwise(Long groupId, Long eventId, Long fromUserId, Long toUserId, BigDecimal amount) {
+    public void settlePairwise(Long groupId, Long eventId, Long fromUserId, Long toUserId, BigDecimal amount, Long actorId) {
         if (amount == null || amount.signum() <= 0) {
             throw new IllegalArgumentException("Settlement amount must be positive");
         }
@@ -112,6 +118,16 @@ public class PaymentService {
         } else {
             group = groupRepository.findById(groupId)
                     .orElseThrow(() -> new NotFoundException("Group not found: " + groupId));
+        }
+        // Authorization: the actor must be a member of the group AND one of the two parties.
+        if (!isMember(group, actorId)) {
+            throw new ForbiddenActionException("Only a group member can record settlements");
+        }
+        if (!actorId.equals(fromUserId) && !actorId.equals(toUserId)) {
+            throw new ForbiddenActionException("You can only settle a debt you are part of");
+        }
+        if (!isMember(group, fromUserId) || !isMember(group, toUserId)) {
+            throw new IllegalArgumentException("Both parties must be members of the group");
         }
         User from = userRepository.findById(fromUserId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + fromUserId));

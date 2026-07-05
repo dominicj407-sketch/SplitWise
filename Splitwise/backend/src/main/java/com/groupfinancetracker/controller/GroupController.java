@@ -88,8 +88,6 @@ public class GroupController {
                 ? SecurityContextHolder.getContext().getAuthentication().getDetails()
                 : null;
         Long actorId = details instanceof Long ? (Long) details : null;
-        System.out.println(
-                "Approve Join Request: groupId=" + groupId + ", requestId=" + requestId + ", actorId=" + actorId);
         if (actorId == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.UNAUTHORIZED, "User not authenticated");
@@ -103,8 +101,6 @@ public class GroupController {
                 ? SecurityContextHolder.getContext().getAuthentication().getDetails()
                 : null;
         Long actorId = details instanceof Long ? (Long) details : null;
-        System.out.println(
-                "Reject Join Request: groupId=" + groupId + ", requestId=" + requestId + ", actorId=" + actorId);
         if (actorId == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.UNAUTHORIZED, "User not authenticated");

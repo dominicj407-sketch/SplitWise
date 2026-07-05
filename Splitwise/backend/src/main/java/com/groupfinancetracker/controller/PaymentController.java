@@ -50,6 +50,10 @@ public class PaymentController {
         Long creditorId = creditorVal != null ? creditorVal.longValue() : null;
         java.math.BigDecimal amount = amountVal != null ? new java.math.BigDecimal(amountVal.toString()) : null;
 
-        paymentService.settlePairwise(groupId, eventId, debtorId, creditorId, amount);
+        Object details = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getDetails()
+                : null;
+        Long actorId = details instanceof Long ? (Long) details : null;
+        paymentService.settlePairwise(groupId, eventId, debtorId, creditorId, amount, actorId);
     }
 }

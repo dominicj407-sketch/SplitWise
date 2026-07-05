@@ -37,7 +37,8 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/users").permitAll()
+                        // Signup goes through /api/auth/signup (issues master password); the public
+                        // POST /api/users bypass is intentionally closed.
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated()
                 );
