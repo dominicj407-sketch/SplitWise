@@ -1,7 +1,10 @@
 package com.groupfinancetracker.service;
 
 import com.groupfinancetracker.dto.DtoModels;
+import com.groupfinancetracker.entity.Group;
 import com.groupfinancetracker.entity.Share;
+import com.groupfinancetracker.entity.SubEvent;
+import com.groupfinancetracker.exception.ForbiddenActionException;
 import com.groupfinancetracker.exception.NotFoundException;
 import com.groupfinancetracker.repository.ShareRepository;
 import com.groupfinancetracker.repository.SubEventRepository;
@@ -18,8 +21,10 @@ public class ShareService {
     private final ShareRepository shareRepository;
     private final SubEventRepository subEventRepository;
 
-    public List<DtoModels.ShareResponse> listBySubEvent(Long subEventId) {
-        if (!subEventRepository.existsById(subEventId)) throw new NotFoundException("SubEvent not found: " + subEventId);
+    public List<DtoModels.ShareResponse> listBySubEvent(Long subEventId, Long actorId) {
+        SubEvent se = subEventRepository.findById(subEventId)
+                .orElseThrow(() -> new NotFoundException("SubEvent not found: " + subEventId));
+        requireMember(se, actorId);
         return shareRepository.findBySubEvent_Id(subEventId).stream().map(this::toDto).toList();
     }
 
@@ -27,9 +32,19 @@ public class ShareService {
         return shareRepository.findByUser_Id(userId).stream().map(this::toDto).toList();
     }
 
-    public DtoModels.ShareResponse get(Long id) {
+    public DtoModels.ShareResponse get(Long id, Long actorId) {
         Share s = shareRepository.findById(id).orElseThrow(() -> new NotFoundException("Share not found: " + id));
+        requireMember(s.getSubEvent(), actorId);
         return toDto(s);
+    }
+
+    private void requireMember(SubEvent se, Long actorId) {
+        Group g = se.getEvent().getGroup();
+        boolean isMember = actorId != null && (g.getCreator().getId().equals(actorId)
+                || g.getMembers().stream().anyMatch(u -> u.getId().equals(actorId)));
+        if (!isMember) {
+            throw new ForbiddenActionException("Only group members can view these shares");
+        }
     }
 
     public DtoModels.ShareResponse toDto(Share s) {

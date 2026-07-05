@@ -22,7 +22,7 @@ public class ShareController {
     }
 
     @GetMapping("/api/subevents/{subEventId}/shares")
-    public List<ShareResponse> listBySubEvent(@PathVariable Long subEventId) { return shareService.listBySubEvent(subEventId); }
+    public List<ShareResponse> listBySubEvent(@PathVariable Long subEventId) { return shareService.listBySubEvent(subEventId, currentUserId()); }
 
     @GetMapping("/api/users/{userId}/shares")
     public List<ShareResponse> listByUser(@PathVariable Long userId) {
@@ -34,5 +34,5 @@ public class ShareController {
     }
 
     @GetMapping("/api/shares/{id}")
-    public ShareResponse get(@PathVariable Long id) { return shareService.get(id); }
+    public ShareResponse get(@PathVariable Long id) { return shareService.get(id, currentUserId()); }
 }

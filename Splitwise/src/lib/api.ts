@@ -2,7 +2,9 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
-const isMockMode = () => localStorage.getItem('token') === 'mock-jwt-token-for-testing';
+// Mock mode has been removed. This no-op is retained so the (now unreachable) mock
+// branches throughout this file compile without change; they never execute.
+const isMockMode = () => false;
 
 const mockGroups: any[] = [
   {
@@ -243,21 +245,8 @@ api.interceptors.response.use(
 );
 
 export const authAPI = {
-  login: async (email: string, password: string) => {
-    if (email === 'admin@gmail.com' && password === '1234') {
-      return {
-        data: {
-          token: 'mock-jwt-token-for-testing',
-          user: {
-            id: 'mock-user-1',
-            name: 'Admin User',
-            email: 'admin@gmail.com',
-          },
-        },
-      };
-    }
-    return api.post('/auth/login', { email, password });
-  },
+  login: async (email: string, password: string) =>
+    api.post('/auth/login', { email, password }),
   signup: (name: string, email: string, password: string) =>
     api.post('/auth/signup', { name, email, password }),
   /** Send Google ID token to backend â†’ get our JWT back */
