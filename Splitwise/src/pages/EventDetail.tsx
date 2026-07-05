@@ -187,7 +187,8 @@ export const EventDetail = () => {
     try {
       await subEventAPI.settlePairwise(
         null, Number(eventId),
-        pendingSettle.debtorId, pendingSettle.creditorId
+        pendingSettle.debtorId, pendingSettle.creditorId,
+        pendingSettle.amount
       );
       showToast('Settlement confirmed! All related payments marked as settled.', 'success');
       setShowSettleModal(false);

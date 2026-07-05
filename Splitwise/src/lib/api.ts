@@ -520,7 +520,7 @@ export const subEventAPI = {
     }
     return api.post('/payments/confirm', { shareId });
   },
-  settlePairwise: (groupId: string | number | null, eventId: string | number | null, debtorId: string | number, creditorId: string | number) => {
+  settlePairwise: (groupId: string | number | null, eventId: string | number | null, debtorId: string | number, creditorId: string | number, amount: number) => {
     if (isMockMode()) {
       mockSubEvents.forEach(subEvent => {
         const payerId = subEvent.payerId;
@@ -533,7 +533,7 @@ export const subEventAPI = {
       });
       return Promise.resolve({ data: { success: true } });
     }
-    return api.post('/payments/settle-pairwise', { groupId, eventId, debtorId, creditorId });
+    return api.post('/payments/settle-pairwise', { groupId, eventId, debtorId, creditorId, amount });
   },
 };
 
