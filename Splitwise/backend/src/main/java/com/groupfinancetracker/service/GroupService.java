@@ -108,9 +108,15 @@ public class GroupService {
         return toDto(g);
     }
 
-    public DtoModels.GroupSpendResponse groupSpend(Long groupId) {
+    public DtoModels.GroupSpendResponse groupSpend(Long groupId, Long actorId) {
         Group g = groupRepository.findById(groupId)
                 .orElseThrow(() -> new NotFoundException("Group not found: " + groupId));
+        boolean isMember = actorId != null && (g.getCreator().getId().equals(actorId)
+                || g.getMembers().stream().anyMatch(u -> u.getId().equals(actorId)));
+        if (!isMember) {
+            throw new com.groupfinancetracker.exception.ForbiddenActionException(
+                    "Only group members can view group spend");
+        }
         java.math.BigDecimal spent = subEventRepository.sumTotalByGroup(groupId);
         return new DtoModels.GroupSpendResponse(groupId, g.getBudgetLimit(),
                 spent != null ? spent : java.math.BigDecimal.ZERO);
