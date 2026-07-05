@@ -1,17 +1,26 @@
 package com.groupfinancetracker.service;
 
 import com.groupfinancetracker.dto.DtoModels;
+import com.groupfinancetracker.entity.Event;
+import com.groupfinancetracker.entity.Group;
 import com.groupfinancetracker.entity.PaymentState;
 import com.groupfinancetracker.entity.PaymentStatus;
+import com.groupfinancetracker.entity.Settlement;
 import com.groupfinancetracker.entity.Share;
+import com.groupfinancetracker.entity.User;
 import com.groupfinancetracker.exception.ForbiddenActionException;
 import com.groupfinancetracker.exception.NotFoundException;
+import com.groupfinancetracker.repository.EventRepository;
+import com.groupfinancetracker.repository.GroupRepository;
 import com.groupfinancetracker.repository.PaymentStatusRepository;
+import com.groupfinancetracker.repository.SettlementRepository;
 import com.groupfinancetracker.repository.ShareRepository;
+import com.groupfinancetracker.repository.UserRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Service
@@ -21,6 +30,10 @@ public class PaymentService {
     private final ShareRepository shareRepository;
     private final PaymentStatusRepository paymentStatusRepository;
     private final ShareService shareService;
+    private final SettlementRepository settlementRepository;
+    private final EventRepository eventRepository;
+    private final GroupRepository groupRepository;
+    private final UserRepository userRepository;
 
     public DtoModels.ShareResponse markPaid(DtoModels.MarkPaymentRequest req) {
         Share s = shareRepository.findById(req.shareId())
@@ -62,79 +75,56 @@ public class PaymentService {
         ps.setStatus(PaymentState.CONFIRMED);
         ps.setConfirmedAt(Instant.now());
         paymentStatusRepository.save(ps);
+
+        // Ledger: a confirmed itemized payment is a real repayment debtor -> payer for the share amount.
+        Long debtorId = s.getUser().getId();
+        if (!debtorId.equals(payerId)) {
+            Event event = s.getSubEvent().getEvent();
+            settlementRepository.save(Settlement.builder()
+                    .group(event.getGroup())
+                    .event(event)
+                    .fromUser(s.getUser())
+                    .toUser(s.getSubEvent().getPayer())
+                    .amount(s.getAmount())
+                    .createdAt(Instant.now())
+                    .createdBy(s.getSubEvent().getPayer())
+                    .note("Itemized share confirmed")
+                    .build());
+        }
         return shareService.toDto(s);
     }
 
     /**
-     * Settles a simplified/pairwise debt.
-     *
-     * Handles BOTH direct debts (A directly owes B) and circular/simplified debts
-     * (greedy simplification produced A → C even though only A→B and B→C shares exist).
-     *
-     * Strategy:
-     *  1. Collect all shares where the DEBTOR owes money in this scope (group or event).
-     *  2. Mark them CONFIRMED in descending-amount order until the net settled amount is covered.
-     *  3. Collect all shares where the CREDITOR is owed money in this scope.
-     *  4. Mark them CONFIRMED similarly.
-     *
-     * This ensures the full simplified chain is cleared regardless of intermediate hops.
+     * Records a settlement (repayment) of {@code amount} from debtor to creditor in the ledger.
+     * Scoped to an event when {@code eventId} is provided, otherwise to the group.
      */
-    public void settlePairwise(Long groupId, Long eventId, Long debtorId, Long creditorId) {
-        java.util.List<Share> allShares;
+    public void settlePairwise(Long groupId, Long eventId, Long fromUserId, Long toUserId, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Settlement amount must be positive");
+        }
+        Group group;
+        Event event = null;
         if (eventId != null) {
-            allShares = shareRepository.findBySubEvent_Event_Id(eventId);
+            event = eventRepository.findById(eventId)
+                    .orElseThrow(() -> new NotFoundException("Event not found: " + eventId));
+            group = event.getGroup();
         } else {
-            allShares = shareRepository.findBySubEvent_Event_Group_Id(groupId);
+            group = groupRepository.findById(groupId)
+                    .orElseThrow(() -> new NotFoundException("Group not found: " + groupId));
         }
-
-        // First try direct settlement (A owes B directly OR B owes A directly)
-        boolean settledDirect = false;
-        for (Share s : allShares) {
-            Long payerId = s.getSubEvent().getPayer().getId();
-            Long userId = s.getUser().getId();
-            if ((userId.equals(debtorId) && payerId.equals(creditorId)) ||
-                (userId.equals(creditorId) && payerId.equals(debtorId))) {
-                confirmShare(s);
-                settledDirect = true;
-            }
-        }
-
-        if (settledDirect) {
-            return; // Direct shares found and settled — done
-        }
-
-        // Circular/indirect case: no direct shares between debtor and creditor.
-        // Settle by clearing the DEBTOR's outstanding debts (shares where debtor owes anyone)
-        // and the CREDITOR's outstanding receivables (shares where creditor paid for others).
-        for (Share s : allShares) {
-            Long payerId = s.getSubEvent().getPayer().getId();
-            Long userId = s.getUser().getId();
-            // Debtor's outstanding share (they owe someone in this group/event)
-            if (userId.equals(debtorId) && !payerId.equals(debtorId)) {
-                confirmShare(s);
-            }
-            // Creditor's incoming share (someone owes them in this group/event)
-            if (payerId.equals(creditorId) && !userId.equals(creditorId)) {
-                confirmShare(s);
-            }
-        }
-    }
-
-    private void confirmShare(Share s) {
-        PaymentStatus ps = paymentStatusRepository.findByShare_Id(s.getId()).orElse(null);
-        if (ps == null) {
-            // Create a new confirmed payment status if none exists (should not happen, but safe)
-            ps = PaymentStatus.builder()
-                    .share(s)
-                    .status(PaymentState.CONFIRMED)
-                    .confirmedAt(Instant.now())
-                    .build();
-            paymentStatusRepository.save(ps);
-        } else if (ps.getStatus() != PaymentState.CONFIRMED) {
-            ps.setStatus(PaymentState.CONFIRMED);
-            ps.setConfirmedAt(Instant.now());
-            paymentStatusRepository.save(ps);
-        }
+        User from = userRepository.findById(fromUserId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + fromUserId));
+        User to = userRepository.findById(toUserId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + toUserId));
+        settlementRepository.save(Settlement.builder()
+                .group(group)
+                .event(event)
+                .fromUser(from)
+                .toUser(to)
+                .amount(amount)
+                .createdAt(Instant.now())
+                .createdBy(from)
+                .note("Pairwise settlement")
+                .build());
     }
 }
-

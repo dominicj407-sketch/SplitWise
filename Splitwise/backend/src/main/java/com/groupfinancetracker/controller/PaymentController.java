@@ -42,11 +42,14 @@ public class PaymentController {
         Number debtorVal = (Number) body.get("debtorId");
         Number creditorVal = (Number) body.get("creditorId");
 
+        Number amountVal = (Number) body.get("amount");
+
         Long groupId = groupVal != null ? groupVal.longValue() : null;
         Long eventId = eventVal != null ? eventVal.longValue() : null;
         Long debtorId = debtorVal != null ? debtorVal.longValue() : null;
         Long creditorId = creditorVal != null ? creditorVal.longValue() : null;
+        java.math.BigDecimal amount = amountVal != null ? new java.math.BigDecimal(amountVal.toString()) : null;
 
-        paymentService.settlePairwise(groupId, eventId, debtorId, creditorId);
+        paymentService.settlePairwise(groupId, eventId, debtorId, creditorId, amount);
     }
 }
