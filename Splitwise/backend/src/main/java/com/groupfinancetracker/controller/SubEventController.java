@@ -39,6 +39,11 @@ public class SubEventController {
         subEventService.delete(id, currentUserId());
     }
 
+    @PutMapping("/api/subevents/{id}/recurring/stop")
+    public SubEventResponse stopRecurring(@PathVariable Long id) {
+        return subEventService.stopRecurring(id, currentUserId());
+    }
+
     @GetMapping("/api/events/{eventId}/subevents")
     public List<SubEventResponse> listByEvent(@PathVariable Long eventId) { return subEventService.listByEvent(eventId); }
 

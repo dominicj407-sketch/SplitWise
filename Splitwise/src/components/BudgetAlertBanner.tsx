@@ -81,7 +81,7 @@ export const BudgetAlertBanner = ({ spent, limit, groupName }: BudgetAlertBanner
 
           {overBudget && (
             <p className="text-xs text-red-600 dark:text-red-400 mt-2 font-medium">
-              🚨 All group members are notified that the budget has been exceeded. Please review recent expenses.
+              🚨 This group has exceeded its budget. Please review recent expenses.
             </p>
           )}
           {nearLimit && (

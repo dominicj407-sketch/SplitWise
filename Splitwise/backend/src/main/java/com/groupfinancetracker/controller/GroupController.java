@@ -174,6 +174,20 @@ public class GroupController {
         return eventService.newEventWarning(groupId, date);
     }
 
+    @PutMapping("/{groupId}")
+    public GroupResponse update(@PathVariable Long groupId, @Valid @RequestBody UpdateGroupRequest req) {
+        Object details = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getDetails()
+                : null;
+        Long actorId = details instanceof Long ? (Long) details : null;
+        return groupService.updateGroup(groupId, req, actorId);
+    }
+
+    @GetMapping("/{groupId}/spend")
+    public com.groupfinancetracker.dto.DtoModels.GroupSpendResponse spend(@PathVariable Long groupId) {
+        return groupService.groupSpend(groupId);
+    }
+
     @DeleteMapping("/{groupId}")
     public void delete(@PathVariable Long groupId) {
         Object details = SecurityContextHolder.getContext().getAuthentication() != null

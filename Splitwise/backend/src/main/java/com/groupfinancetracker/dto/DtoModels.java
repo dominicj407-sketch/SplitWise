@@ -44,7 +44,10 @@ public final class DtoModels {
         public record CreateGroupRequest(@NotBlank String name, @NotNull Long creatorId, Set<Long> memberIds, BigDecimal budgetLimit) {
         }
 
-        public record UpdateGroupRequest(@NotBlank String name) {
+        public record UpdateGroupRequest(@NotBlank String name, BigDecimal budgetLimit) {
+        }
+
+        public record GroupSpendResponse(Long groupId, BigDecimal budgetLimit, BigDecimal spent) {
         }
 
         public record GroupResponse(Long id, String name, Long creatorId, Set<Long> memberIds, Instant createdAt,

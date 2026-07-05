@@ -27,6 +27,7 @@ public class GroupService {
     private final UserRepository userRepository;
     private final GroupInvitationRepository groupInvitationRepository;
     private final SettlementService settlementService;
+    private final com.groupfinancetracker.repository.SubEventRepository subEventRepository;
 
     public DtoModels.GroupResponse create(DtoModels.CreateGroupRequest req) {
         User creator = userRepository.findById(req.creatorId())
@@ -92,6 +93,27 @@ public class GroupService {
 
         g.getMembers().removeIf(m -> m.getId().equals(userId));
         groupRepository.save(g);
+    }
+
+    public DtoModels.GroupResponse updateGroup(Long groupId, DtoModels.UpdateGroupRequest req, Long actorId) {
+        Group g = groupRepository.findById(groupId)
+                .orElseThrow(() -> new NotFoundException("Group not found: " + groupId));
+        if (!g.getCreator().getId().equals(actorId)) {
+            throw new com.groupfinancetracker.exception.ForbiddenActionException(
+                    "Only the group creator can update the group");
+        }
+        g.setName(req.name());
+        g.setBudgetLimit(req.budgetLimit());
+        groupRepository.save(g);
+        return toDto(g);
+    }
+
+    public DtoModels.GroupSpendResponse groupSpend(Long groupId) {
+        Group g = groupRepository.findById(groupId)
+                .orElseThrow(() -> new NotFoundException("Group not found: " + groupId));
+        java.math.BigDecimal spent = subEventRepository.sumTotalByGroup(groupId);
+        return new DtoModels.GroupSpendResponse(groupId, g.getBudgetLimit(),
+                spent != null ? spent : java.math.BigDecimal.ZERO);
     }
 
     private DtoModels.GroupResponse toDto(Group g) {

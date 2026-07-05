@@ -152,6 +152,17 @@ export const EventDetail = () => {
     }
   };
 
+  const handleStopRecurring = async (id: string | number) => {
+    if (!window.confirm('Stop this recurring expense? Existing copies stay; no new ones will be created.')) return;
+    try {
+      await subEventAPI.stopRecurring(id);
+      showToast('Recurring stopped', 'success');
+      fetchEventData();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to stop recurring', 'error');
+    }
+  };
+
   const handleMarkPaid = (shareId: string | number, subEventId: string | number) => {
     setActiveShareId(shareId);
     setActiveSubEventId(subEventId);
@@ -334,6 +345,14 @@ export const EventDetail = () => {
                         <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-xs rounded font-medium">
                           ♻️ Recurring: {subEvent.recurringPeriod}
                         </span>
+                      )}
+                      {subEvent.isRecurring && (isPayer || String(subEvent.eventCreatorId) === String(user?.id)) && (
+                        <button
+                          onClick={() => handleStopRecurring(subEvent.id)}
+                          className="inline-block mt-1 ml-2 px-2 py-0.5 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                        >
+                          Stop recurring
+                        </button>
                       )}
                     </div>
                     <div className="text-right">

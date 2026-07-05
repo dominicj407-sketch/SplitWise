@@ -107,6 +107,17 @@ public class SubEventService {
         subEventRepository.delete(se); // cascades to shares and their payment statuses
     }
 
+    /** Stop a recurring expense from producing future copies (keeps the existing expense). */
+    public DtoModels.SubEventResponse stopRecurring(Long id, Long actorId) {
+        SubEvent se = subEventRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("SubEvent not found: " + id));
+        checkCanModify(se, actorId);
+        se.setRecurring(false);
+        se.setNextRunDate(null);
+        subEventRepository.save(se);
+        return toDto(se);
+    }
+
     private void persistShares(SubEvent se, User payer, List<DtoModels.ShareSplit> splits) {
         BigDecimal sum = BigDecimal.ZERO;
         for (DtoModels.ShareSplit split : splits) {

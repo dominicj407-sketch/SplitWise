@@ -266,6 +266,9 @@ export const groupAPI = {
     const userId = storedUser ? JSON.parse(storedUser).id : null;
     return api.get('/groups', { params: { userId } });
   },
+  update: (id: string | number, data: { name: string; budgetLimit?: number | null }) =>
+    api.put(`/groups/${id}`, { name: data.name, budgetLimit: data.budgetLimit ?? null }),
+  getSpend: (id: string | number) => api.get(`/groups/${id}/spend`),
   getById: (id: string) => {
     if (isMockMode()) {
       const group = mockGroups.find(g => g.id === id);
@@ -509,6 +512,7 @@ export const subEventAPI = {
     });
   },
   delete: (id: string | number) => api.delete(`/subevents/${id}`),
+  stopRecurring: (id: string | number) => api.put(`/subevents/${id}/recurring/stop`),
   markPaid: (shareId: string | number, transactionRef?: string, proofUrl?: string, subEventId?: string | number) => {
     if (isMockMode()) {
       const subEvent = mockSubEvents.find(s => s.id === subEventId);
