@@ -2,6 +2,7 @@ package com.groupfinancetracker.service;
 
 import com.groupfinancetracker.dto.DtoModels;
 import com.groupfinancetracker.entity.*;
+import com.groupfinancetracker.exception.ForbiddenActionException;
 import com.groupfinancetracker.exception.NotFoundException;
 import com.groupfinancetracker.repository.*;
 import jakarta.transaction.Transactional;
@@ -25,12 +26,14 @@ public class SubEventService {
     private final UserRepository userRepository;
     private final ShareRepository shareRepository;
     private final PaymentStatusRepository paymentStatusRepository;
+    private final SettlementRepository settlementRepository;
 
     public DtoModels.SubEventResponse create(DtoModels.CreateSubEventRequest req) {
         Event event = eventRepository.findById(req.eventId())
                 .orElseThrow(() -> new NotFoundException("Event not found: " + req.eventId()));
         User payer = userRepository.findById(req.payerId())
                 .orElseThrow(() -> new NotFoundException("Payer not found: " + req.payerId()));
+        validatePayerIsMember(event, payer.getId());
 
         // Validate date
         if (req.subEventDate().isBefore(event.getStartDate()) || req.subEventDate().isAfter(event.getEndDate())) {
@@ -38,12 +41,7 @@ public class SubEventService {
                     + " to " + event.getEndDate() + ")");
         }
 
-        // Compute custom week numbering starting at 1 from the first subevent date in
-        // the app
-        LocalDate base = subEventRepository.findEarliestSubEventDate();
-        if (base == null)
-            base = req.subEventDate();
-        int weekIndex = (int) ChronoUnit.WEEKS.between(base, req.subEventDate()) + 1; // week-1 based
+        int weekIndex = computeWeekIndex(req.subEventDate());
 
         SubEvent se = SubEvent.builder()
                 .description(req.description())
@@ -60,8 +58,58 @@ public class SubEventService {
                 .build();
         se = subEventRepository.save(se);
 
+        persistShares(se, payer, req.shares());
+
+        return toDto(se);
+    }
+
+    public DtoModels.SubEventResponse update(Long id, DtoModels.UpdateSubEventRequest req, Long actorId) {
+        SubEvent se = subEventRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("SubEvent not found: " + id));
+        checkCanModify(se, actorId);
+
+        Event event = se.getEvent();
+        User payer = userRepository.findById(req.payerId())
+                .orElseThrow(() -> new NotFoundException("Payer not found: " + req.payerId()));
+        validatePayerIsMember(event, payer.getId());
+
+        if (req.subEventDate().isBefore(event.getStartDate()) || req.subEventDate().isAfter(event.getEndDate())) {
+            throw new IllegalArgumentException("Expense date must be within event dates (" + event.getStartDate()
+                    + " to " + event.getEndDate() + ")");
+        }
+
+        // Reset the itemized ledger rows and shares for this expense, then rebuild them.
+        settlementRepository.deleteBySubEvent_Id(se.getId());
+        List<Share> oldShares = shareRepository.findBySubEvent_Id(se.getId());
+        shareRepository.deleteAll(oldShares); // cascades to payment statuses
+
+        se.setDescription(req.description());
+        se.setTotalAmount(req.totalAmount());
+        se.setPayer(payer);
+        se.setSubEventDate(req.subEventDate());
+        se.setWeekNumber(computeWeekIndex(req.subEventDate()));
+        se.setYear(1);
+        se.setRecurring(req.isRecurring());
+        se.setRecurringPeriod(req.recurringPeriod());
+        se.setNextRunDate(req.isRecurring() ? computeNextRunDate(Instant.now(), req.recurringPeriod()) : null);
+        se = subEventRepository.save(se);
+
+        persistShares(se, payer, req.shares());
+
+        return toDto(se);
+    }
+
+    public void delete(Long id, Long actorId) {
+        SubEvent se = subEventRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("SubEvent not found: " + id));
+        checkCanModify(se, actorId);
+        settlementRepository.deleteBySubEvent_Id(se.getId());
+        subEventRepository.delete(se); // cascades to shares and their payment statuses
+    }
+
+    private void persistShares(SubEvent se, User payer, List<DtoModels.ShareSplit> splits) {
         BigDecimal sum = BigDecimal.ZERO;
-        for (DtoModels.ShareSplit split : req.shares()) {
+        for (DtoModels.ShareSplit split : splits) {
             User u = userRepository.findById(split.userId())
                     .orElseThrow(() -> new NotFoundException("User not found: " + split.userId()));
             Share s = Share.builder()
@@ -89,15 +137,34 @@ public class SubEventService {
             sum = sum.add(split.amount());
         }
 
-        BigDecimal diff = sum.subtract(req.totalAmount()).abs();
+        BigDecimal diff = sum.subtract(se.getTotalAmount()).abs();
         if (diff.compareTo(new BigDecimal("0.01")) > 0) {
             throw new IllegalStateException("Share splits must sum to total amount");
         }
+    }
 
-        // No longer deleting old weeks; we will hide older pages in UI while preserving
-        // history
+    private void validatePayerIsMember(Event event, Long payerId) {
+        boolean isMember = event.getGroup().getMembers().stream().anyMatch(u -> u.getId().equals(payerId))
+                || event.getGroup().getCreator().getId().equals(payerId);
+        if (!isMember) {
+            throw new IllegalArgumentException("Payer must be a member of the group");
+        }
+    }
 
-        return toDto(se);
+    private void checkCanModify(SubEvent se, Long actorId) {
+        Long eventCreatorId = se.getEvent().getCreator().getId();
+        Long payerId = se.getPayer().getId();
+        if (actorId == null || (!actorId.equals(eventCreatorId) && !actorId.equals(payerId))) {
+            throw new ForbiddenActionException("Only the event creator or the expense payer can modify this expense");
+        }
+    }
+
+    private int computeWeekIndex(LocalDate date) {
+        LocalDate base = subEventRepository.findEarliestSubEventDate();
+        if (base == null)
+            base = date;
+        int weekIndex = (int) ChronoUnit.WEEKS.between(base, date) + 1; // week-1 based
+        return Math.max(weekIndex, 1);
     }
 
     public List<DtoModels.SubEventResponse> listByEvent(Long eventId) {

@@ -44,6 +44,7 @@ public class ConfirmedShareBackfill {
                 settlementRepository.save(Settlement.builder()
                         .group(event.getGroup())
                         .event(event)
+                        .subEvent(s.getSubEvent())
                         .fromUser(s.getUser())
                         .toUser(s.getSubEvent().getPayer())
                         .amount(s.getAmount())

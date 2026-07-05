@@ -491,6 +491,35 @@ export const subEventAPI = {
       recurringPeriod: data.recurringPeriod ?? null,
     });
   },
+  update: (id: string | number, data: {
+    title: string;
+    totalAmount: number;
+    payerId: string | number;
+    subEventDate?: string;
+    sharerIds: (string | number)[];
+    splitType: 'EQUAL' | 'CUSTOM';
+    customAmounts?: Record<string | number, number>;
+    isRecurring?: boolean;
+    recurringPeriod?: string;
+  }) => {
+    const perPerson = data.splitType === 'EQUAL'
+      ? data.totalAmount / data.sharerIds.length
+      : 0;
+    const shares = data.sharerIds.map(sid => ({
+      userId: Number(sid),
+      amount: data.splitType === 'EQUAL' ? perPerson : (data.customAmounts?.[sid] ?? 0),
+    }));
+    return api.put(`/subevents/${id}`, {
+      description: data.title,
+      totalAmount: data.totalAmount,
+      payerId: Number(data.payerId),
+      subEventDate: data.subEventDate ?? new Date().toISOString().slice(0, 10),
+      shares,
+      isRecurring: data.isRecurring ?? false,
+      recurringPeriod: data.recurringPeriod ?? null,
+    });
+  },
+  delete: (id: string | number) => api.delete(`/subevents/${id}`),
   markPaid: (shareId: string | number, transactionRef?: string, proofUrl?: string, subEventId?: string | number) => {
     if (isMockMode()) {
       const subEvent = mockSubEvents.find(s => s.id === subEventId);

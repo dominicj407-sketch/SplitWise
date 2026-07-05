@@ -37,6 +37,7 @@ export const EventDetail = () => {
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingSubEvent, setEditingSubEvent] = useState<any>(null);
   const [settlementSummary, setSettlementSummary] = useState<any[]>([]);
 
   // Settle modal state
@@ -136,7 +137,19 @@ export const EventDetail = () => {
 
   const handleSubEventCreated = () => {
     setShowCreateModal(false);
+    setEditingSubEvent(null);
     fetchEventData();
+  };
+
+  const handleDeleteSubEvent = async (id: string | number) => {
+    if (!window.confirm('Delete this expense? This cannot be undone.')) return;
+    try {
+      await subEventAPI.delete(id);
+      showToast('Expense deleted', 'success');
+      fetchEventData();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete expense', 'error');
+    }
   };
 
   const handleMarkPaid = (shareId: string | number, subEventId: string | number) => {
@@ -327,6 +340,22 @@ export const EventDetail = () => {
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">
                         ₹{Number(subEvent.totalAmount).toFixed(2)}
                       </p>
+                      {(isPayer || String(subEvent.eventCreatorId) === String(user?.id)) && (
+                        <div className="flex gap-2 justify-end mt-2">
+                          <button
+                            onClick={() => setEditingSubEvent(subEvent)}
+                            className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSubEvent(subEvent.id)}
+                            className="text-xs px-2 py-1 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 transition"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -703,10 +732,11 @@ export const EventDetail = () => {
       )}
 
       <CreateSubEventModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        isOpen={showCreateModal || !!editingSubEvent}
+        onClose={() => { setShowCreateModal(false); setEditingSubEvent(null); }}
         onSuccess={handleSubEventCreated}
         eventId={eventId!}
+        editSubEvent={editingSubEvent}
       />
     </div>
   );

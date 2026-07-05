@@ -82,6 +82,16 @@ public final class DtoModels {
         public record ShareSplit(@NotNull Long userId, @NotNull @Positive BigDecimal amount) {
         }
 
+        public record UpdateSubEventRequest(
+                        @NotBlank String description,
+                        @NotNull @Positive BigDecimal totalAmount,
+                        @NotNull Long payerId,
+                        @NotNull LocalDate subEventDate,
+                        @NotEmpty List<ShareSplit> shares,
+                        boolean isRecurring,
+                        String recurringPeriod) {
+        }
+
         public record SubEventResponse(Long id, String description, BigDecimal totalAmount, Long payerId, Long eventId,
                         Long eventCreatorId, Instant timestamp, LocalDate subEventDate, Integer weekNumber,
                         Integer year, boolean isRecurring, String recurringPeriod, Instant nextRunDate) {
