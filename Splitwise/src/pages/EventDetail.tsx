@@ -37,6 +37,7 @@ export const EventDetail = () => {
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingSubEvent, setEditingSubEvent] = useState<any>(null);
   const [settlementSummary, setSettlementSummary] = useState<any[]>([]);
 
   // Settle modal state
@@ -136,7 +137,30 @@ export const EventDetail = () => {
 
   const handleSubEventCreated = () => {
     setShowCreateModal(false);
+    setEditingSubEvent(null);
     fetchEventData();
+  };
+
+  const handleDeleteSubEvent = async (id: string | number) => {
+    if (!window.confirm('Delete this expense? This cannot be undone.')) return;
+    try {
+      await subEventAPI.delete(id);
+      showToast('Expense deleted', 'success');
+      fetchEventData();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete expense', 'error');
+    }
+  };
+
+  const handleStopRecurring = async (id: string | number) => {
+    if (!window.confirm('Stop this recurring expense? Existing copies stay; no new ones will be created.')) return;
+    try {
+      await subEventAPI.stopRecurring(id);
+      showToast('Recurring stopped', 'success');
+      fetchEventData();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to stop recurring', 'error');
+    }
   };
 
   const handleMarkPaid = (shareId: string | number, subEventId: string | number) => {
@@ -187,7 +211,8 @@ export const EventDetail = () => {
     try {
       await subEventAPI.settlePairwise(
         null, Number(eventId),
-        pendingSettle.debtorId, pendingSettle.creditorId
+        pendingSettle.debtorId, pendingSettle.creditorId,
+        pendingSettle.amount
       );
       showToast('Settlement confirmed! All related payments marked as settled.', 'success');
       setShowSettleModal(false);
@@ -321,11 +346,35 @@ export const EventDetail = () => {
                           ♻️ Recurring: {subEvent.recurringPeriod}
                         </span>
                       )}
+                      {subEvent.isRecurring && (isPayer || String(subEvent.eventCreatorId) === String(user?.id)) && (
+                        <button
+                          onClick={() => handleStopRecurring(subEvent.id)}
+                          className="inline-block mt-1 ml-2 px-2 py-0.5 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                        >
+                          Stop recurring
+                        </button>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-2xl font-bold text-gray-900 dark:text-white">
                         ₹{Number(subEvent.totalAmount).toFixed(2)}
                       </p>
+                      {(isPayer || String(subEvent.eventCreatorId) === String(user?.id)) && (
+                        <div className="flex gap-2 justify-end mt-2">
+                          <button
+                            onClick={() => setEditingSubEvent(subEvent)}
+                            className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSubEvent(subEvent.id)}
+                            className="text-xs px-2 py-1 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 transition"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -702,10 +751,11 @@ export const EventDetail = () => {
       )}
 
       <CreateSubEventModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        isOpen={showCreateModal || !!editingSubEvent}
+        onClose={() => { setShowCreateModal(false); setEditingSubEvent(null); }}
         onSuccess={handleSubEventCreated}
         eventId={eventId!}
+        editSubEvent={editingSubEvent}
       />
     </div>
   );

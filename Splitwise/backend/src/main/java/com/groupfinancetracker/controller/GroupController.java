@@ -88,8 +88,6 @@ public class GroupController {
                 ? SecurityContextHolder.getContext().getAuthentication().getDetails()
                 : null;
         Long actorId = details instanceof Long ? (Long) details : null;
-        System.out.println(
-                "Approve Join Request: groupId=" + groupId + ", requestId=" + requestId + ", actorId=" + actorId);
         if (actorId == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.UNAUTHORIZED, "User not authenticated");
@@ -103,8 +101,6 @@ public class GroupController {
                 ? SecurityContextHolder.getContext().getAuthentication().getDetails()
                 : null;
         Long actorId = details instanceof Long ? (Long) details : null;
-        System.out.println(
-                "Reject Join Request: groupId=" + groupId + ", requestId=" + requestId + ", actorId=" + actorId);
         if (actorId == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.UNAUTHORIZED, "User not authenticated");
@@ -176,6 +172,24 @@ public class GroupController {
     public com.groupfinancetracker.dto.DtoModels.NewEventWarningResponse newEventWarning(@PathVariable Long groupId,
             @RequestParam(value = "date", required = false) java.time.LocalDate date) {
         return eventService.newEventWarning(groupId, date);
+    }
+
+    @PutMapping("/{groupId}")
+    public GroupResponse update(@PathVariable Long groupId, @Valid @RequestBody UpdateGroupRequest req) {
+        Object details = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getDetails()
+                : null;
+        Long actorId = details instanceof Long ? (Long) details : null;
+        return groupService.updateGroup(groupId, req, actorId);
+    }
+
+    @GetMapping("/{groupId}/spend")
+    public com.groupfinancetracker.dto.DtoModels.GroupSpendResponse spend(@PathVariable Long groupId) {
+        Object details = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getDetails()
+                : null;
+        Long actorId = details instanceof Long ? (Long) details : null;
+        return groupService.groupSpend(groupId, actorId);
     }
 
     @DeleteMapping("/{groupId}")

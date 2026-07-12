@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -17,19 +16,15 @@ import java.util.List;
 public class ReportController {
     private final SubEventService subEventService;
 
+    /** Always reports for the authenticated user; a client-supplied userId is ignored (prevents IDOR). */
     @GetMapping("/weekly")
-    public List<WeeklyReportItem> getWeeklyReport(@RequestParam(value = "userId", required = false) Long userId) {
-        Long targetUserId = userId;
+    public List<WeeklyReportItem> getWeeklyReport() {
+        Object details = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getDetails()
+                : null;
+        Long targetUserId = details instanceof Long ? (Long) details : null;
         if (targetUserId == null) {
-            Object details = SecurityContextHolder.getContext().getAuthentication() != null
-                    ? SecurityContextHolder.getContext().getAuthentication().getDetails()
-                    : null;
-            if (details instanceof Long) {
-                targetUserId = (Long) details;
-            }
-        }
-        if (targetUserId == null) {
-            throw new IllegalArgumentException("User ID must be provided or authenticated");
+            throw new IllegalArgumentException("Not authenticated");
         }
         return subEventService.getWeeklyReport(targetUserId);
     }

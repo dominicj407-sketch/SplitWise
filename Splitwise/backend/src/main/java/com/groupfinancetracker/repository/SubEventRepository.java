@@ -53,4 +53,7 @@ public interface SubEventRepository extends JpaRepository<SubEvent, Long> {
 
     @Query("select coalesce(sum(se.totalAmount), 0) from SubEvent se where se.event.group.id = ?1 and se.payer.id = ?2")
     BigDecimal sumTotalByGroupAndPayer(Long groupId, Long payerId);
+
+    @Query("select coalesce(sum(se.totalAmount), 0) from SubEvent se where se.event.group.id = ?1")
+    BigDecimal sumTotalByGroup(Long groupId);
 }

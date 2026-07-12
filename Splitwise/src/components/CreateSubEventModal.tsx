@@ -9,6 +9,8 @@ interface CreateSubEventModalProps {
   onClose: () => void;
   onSuccess: () => void;
   eventId: string;
+  /** When provided, the modal edits this expense instead of creating a new one. */
+  editSubEvent?: any;
 }
 
 export const CreateSubEventModal = ({
@@ -16,7 +18,9 @@ export const CreateSubEventModal = ({
   onClose,
   onSuccess,
   eventId,
+  editSubEvent,
 }: CreateSubEventModalProps) => {
+  const isEdit = !!editSubEvent;
   const [title, setTitle] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [splitType, setSplitType] = useState<'EQUAL' | 'CUSTOM'>('EQUAL');
@@ -45,14 +49,16 @@ export const CreateSubEventModal = ({
           );
           const members = allUsers.filter((u: User) => memberIdSet.has(String(u.id)));
           setGroupMembers(members);
-          // Default payer to current logged-in user if they are a member
-          const storedUser = localStorage.getItem('user');
-          if (storedUser) {
-            const currentUser = JSON.parse(storedUser);
-            if (memberIdSet.has(String(currentUser.id))) {
-              setPayerId(currentUser.id);
-            } else if (members.length > 0) {
-              setPayerId(members[0].id);
+          // Default payer to current logged-in user if they are a member (create mode only)
+          if (!isEdit) {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
+              const currentUser = JSON.parse(storedUser);
+              if (memberIdSet.has(String(currentUser.id))) {
+                setPayerId(currentUser.id);
+              } else if (members.length > 0) {
+                setPayerId(members[0].id);
+              }
             }
           }
         } catch {
@@ -66,7 +72,34 @@ export const CreateSubEventModal = ({
     if (isOpen) {
       fetchEventData();
     }
-  }, [isOpen, eventId]);
+  }, [isOpen, eventId, isEdit]);
+
+  // Pre-fill fields when editing (or reset when opening a fresh create).
+  useEffect(() => {
+    if (!isOpen) return;
+    if (editSubEvent) {
+      const sharers = editSubEvent.sharers || editSubEvent.shares || [];
+      setTitle(editSubEvent.description || editSubEvent.title || '');
+      setTotalAmount(String(editSubEvent.totalAmount ?? ''));
+      setPayerId(editSubEvent.payerId ?? '');
+      setSubEventDate((editSubEvent.subEventDate || new Date().toISOString().slice(0, 10)).slice(0, 10));
+      setIsRecurring(!!editSubEvent.isRecurring);
+      setRecurringPeriod(editSubEvent.recurringPeriod || 'MONTHLY');
+      setSplitType('CUSTOM'); // preserve exact per-person amounts
+      setSelectedSharers(sharers.map((s: any) => s.userId));
+      setCustomAmounts(
+        Object.fromEntries(sharers.map((s: any) => [s.userId, String(s.amount)]))
+      );
+    } else {
+      setTitle('');
+      setTotalAmount('');
+      setSelectedSharers([]);
+      setCustomAmounts({});
+      setSplitType('EQUAL');
+      setIsRecurring(false);
+      setRecurringPeriod('DAILY');
+    }
+  }, [isOpen, editSubEvent]);
 
   const toggleSharer = (userId: string | number) => {
     if (selectedSharers.includes(userId)) {
@@ -112,8 +145,7 @@ export const CreateSubEventModal = ({
 
     setIsLoading(true);
     try {
-      await subEventAPI.create({
-        eventId,
+      const payload = {
         title,
         totalAmount: parseFloat(totalAmount),
         payerId,
@@ -128,18 +160,17 @@ export const CreateSubEventModal = ({
             : undefined,
         isRecurring,
         recurringPeriod: isRecurring ? recurringPeriod : undefined,
-      });
-      showToast('Payment created successfully!', 'success');
-      setTitle('');
-      setTotalAmount('');
-      setSelectedSharers([]);
-      setCustomAmounts({});
-      setSplitType('EQUAL');
-      setIsRecurring(false);
-      setRecurringPeriod('DAILY');
+      };
+      if (isEdit) {
+        await subEventAPI.update(editSubEvent.id, payload);
+        showToast('Payment updated successfully!', 'success');
+      } else {
+        await subEventAPI.create({ eventId, ...payload });
+        showToast('Payment created successfully!', 'success');
+      }
       onSuccess();
     } catch (error: any) {
-      showToast(error.response?.data?.message || 'Failed to create payment', 'error');
+      showToast(error.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} payment`, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -150,7 +181,7 @@ export const CreateSubEventModal = ({
     : 0;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create Payment">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? 'Edit Payment' : 'Create Payment'}>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -274,7 +305,7 @@ export const CreateSubEventModal = ({
                 <li>A new payment copy is auto-added <b>every 30 days</b></li>
                 <li>The original is marked with a ♻️ badge in the payments list</li>
                 <li>Each copy starts as <b>PENDING</b> — members must mark it paid</li>
-                <li>You can stop recurrence by deleting the original payment</li>
+                <li>You can stop recurrence from the payment's menu or by deleting it</li>
               </ul>
             </div>
           )}
@@ -379,7 +410,7 @@ export const CreateSubEventModal = ({
           disabled={isLoading}
           className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isLoading ? 'Creating...' : 'Create Payment'}
+          {isLoading ? (isEdit ? 'Saving...' : 'Creating...') : (isEdit ? 'Save Changes' : 'Create Payment')}
         </button>
       </form>
     </Modal>

@@ -2,7 +2,9 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
-const isMockMode = () => localStorage.getItem('token') === 'mock-jwt-token-for-testing';
+// Mock mode has been removed. This no-op is retained so the (now unreachable) mock
+// branches throughout this file compile without change; they never execute.
+const isMockMode = () => false;
 
 const mockGroups: any[] = [
   {
@@ -243,21 +245,8 @@ api.interceptors.response.use(
 );
 
 export const authAPI = {
-  login: async (email: string, password: string) => {
-    if (email === 'admin@gmail.com' && password === '1234') {
-      return {
-        data: {
-          token: 'mock-jwt-token-for-testing',
-          user: {
-            id: 'mock-user-1',
-            name: 'Admin User',
-            email: 'admin@gmail.com',
-          },
-        },
-      };
-    }
-    return api.post('/auth/login', { email, password });
-  },
+  login: async (email: string, password: string) =>
+    api.post('/auth/login', { email, password }),
   signup: (name: string, email: string, password: string) =>
     api.post('/auth/signup', { name, email, password }),
   /** Send Google ID token to backend â†’ get our JWT back */
@@ -277,6 +266,9 @@ export const groupAPI = {
     const userId = storedUser ? JSON.parse(storedUser).id : null;
     return api.get('/groups', { params: { userId } });
   },
+  update: (id: string | number, data: { name: string; budgetLimit?: number | null }) =>
+    api.put(`/groups/${id}`, { name: data.name, budgetLimit: data.budgetLimit ?? null }),
+  getSpend: (id: string | number) => api.get(`/groups/${id}/spend`),
   getById: (id: string) => {
     if (isMockMode()) {
       const group = mockGroups.find(g => g.id === id);
@@ -491,6 +483,36 @@ export const subEventAPI = {
       recurringPeriod: data.recurringPeriod ?? null,
     });
   },
+  update: (id: string | number, data: {
+    title: string;
+    totalAmount: number;
+    payerId: string | number;
+    subEventDate?: string;
+    sharerIds: (string | number)[];
+    splitType: 'EQUAL' | 'CUSTOM';
+    customAmounts?: Record<string | number, number>;
+    isRecurring?: boolean;
+    recurringPeriod?: string;
+  }) => {
+    const perPerson = data.splitType === 'EQUAL'
+      ? data.totalAmount / data.sharerIds.length
+      : 0;
+    const shares = data.sharerIds.map(sid => ({
+      userId: Number(sid),
+      amount: data.splitType === 'EQUAL' ? perPerson : (data.customAmounts?.[sid] ?? 0),
+    }));
+    return api.put(`/subevents/${id}`, {
+      description: data.title,
+      totalAmount: data.totalAmount,
+      payerId: Number(data.payerId),
+      subEventDate: data.subEventDate ?? new Date().toISOString().slice(0, 10),
+      shares,
+      isRecurring: data.isRecurring ?? false,
+      recurringPeriod: data.recurringPeriod ?? null,
+    });
+  },
+  delete: (id: string | number) => api.delete(`/subevents/${id}`),
+  stopRecurring: (id: string | number) => api.put(`/subevents/${id}/recurring/stop`),
   markPaid: (shareId: string | number, transactionRef?: string, proofUrl?: string, subEventId?: string | number) => {
     if (isMockMode()) {
       const subEvent = mockSubEvents.find(s => s.id === subEventId);
@@ -520,7 +542,7 @@ export const subEventAPI = {
     }
     return api.post('/payments/confirm', { shareId });
   },
-  settlePairwise: (groupId: string | number | null, eventId: string | number | null, debtorId: string | number, creditorId: string | number) => {
+  settlePairwise: (groupId: string | number | null, eventId: string | number | null, debtorId: string | number, creditorId: string | number, amount: number) => {
     if (isMockMode()) {
       mockSubEvents.forEach(subEvent => {
         const payerId = subEvent.payerId;
@@ -533,7 +555,7 @@ export const subEventAPI = {
       });
       return Promise.resolve({ data: { success: true } });
     }
-    return api.post('/payments/settle-pairwise', { groupId, eventId, debtorId, creditorId });
+    return api.post('/payments/settle-pairwise', { groupId, eventId, debtorId, creditorId, amount });
   },
 };
 

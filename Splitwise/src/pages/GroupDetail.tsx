@@ -111,7 +111,8 @@ export const GroupDetail = () => {
     try {
       await subEventAPI.settlePairwise(
         Number(groupId), null,
-        pendingSettle.debtorId, pendingSettle.creditorId
+        pendingSettle.debtorId, pendingSettle.creditorId,
+        pendingSettle.amount
       );
       showToast('Settlement confirmed! All related payments marked as settled.', 'success');
       setShowSettleModal(false);
@@ -249,6 +250,26 @@ export const GroupDetail = () => {
     );
   }
 
+  const handleEditBudget = async () => {
+    if (!group || !groupId) return;
+    const current = group.budgetLimit;
+    const input = window.prompt('Set group budget limit (₹). Leave blank to remove.', current ? String(current) : '');
+    if (input === null) return; // cancelled
+    const trimmed = input.trim();
+    const budgetLimit = trimmed === '' ? null : Number(trimmed);
+    if (budgetLimit !== null && (isNaN(budgetLimit) || budgetLimit < 0)) {
+      showToast('Enter a valid non-negative number', 'error');
+      return;
+    }
+    try {
+      await groupAPI.update(groupId, { name: group.name, budgetLimit });
+      showToast('Budget updated', 'success');
+      fetchGroupData();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to update budget', 'error');
+    }
+  };
+
   // weeklySpent is loaded from state (computed from real subevent totals)
   const budgetLimit = group?.budgetLimit || 0;
 
@@ -290,6 +311,14 @@ export const GroupDetail = () => {
               >
                 <LogOut className="w-4 h-4" />
                 Exit Group
+              </button>
+            )}
+            {group && user && String(group.creatorId) === String(user.id) && (
+              <button
+                onClick={handleEditBudget}
+                className="flex items-center gap-2 bg-white border border-gray-300 dark:border-gray-650 hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-750 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg text-sm font-medium transition"
+              >
+                💰 Edit Budget
               </button>
             )}
             <button
