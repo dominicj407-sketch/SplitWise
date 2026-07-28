@@ -48,8 +48,7 @@ const mockEvents: any[] = [
     id: 'event-1',
     groupId: 'group-1',
     title: 'Office Lunch',
-    startDate: '2025-10-20T00:00:00Z',
-    endDate: '2025-10-20T00:00:00Z',
+    eventDate: '2025-10-20T00:00:00Z',
     totalAmount: 85.00,
     createdAt: '2025-10-20T09:00:00Z',
   },
@@ -57,8 +56,7 @@ const mockEvents: any[] = [
     id: 'event-2',
     groupId: 'group-1',
     title: 'Team Building Activity',
-    startDate: '2025-10-18T00:00:00Z',
-    endDate: '2025-10-18T00:00:00Z',
+    eventDate: '2025-10-18T00:00:00Z',
     totalAmount: 150.00,
     createdAt: '2025-10-18T10:00:00Z',
   },
@@ -66,8 +64,7 @@ const mockEvents: any[] = [
     id: 'event-3',
     groupId: 'group-2',
     title: 'Monthly Groceries',
-    startDate: '2025-10-15T00:00:00Z',
-    endDate: '2025-10-15T00:00:00Z',
+    eventDate: '2025-10-15T00:00:00Z',
     totalAmount: 320.00,
     createdAt: '2025-10-15T08:00:00Z',
   },
@@ -75,8 +72,7 @@ const mockEvents: any[] = [
     id: 'event-4',
     groupId: 'group-2',
     title: 'Utility Bills',
-    startDate: '2025-10-22T00:00:00Z',
-    endDate: '2025-10-22T00:00:00Z',
+    eventDate: '2025-10-22T00:00:00Z',
     totalAmount: 180.00,
     createdAt: '2025-10-22T07:00:00Z',
   },
@@ -84,8 +80,7 @@ const mockEvents: any[] = [
     id: 'event-5',
     groupId: 'group-3',
     title: 'Weekend Trip',
-    startDate: '2025-10-19T00:00:00Z',
-    endDate: '2025-10-21T00:00:00Z',
+    eventDate: '2025-10-19T00:00:00Z',
     totalAmount: 850.00,
     createdAt: '2025-10-19T06:00:00Z',
   },
@@ -222,6 +217,10 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // The refresh token lives in an httpOnly cookie (set/read only on /auth/* endpoints) --
+  // it needs to ride along cross-origin for the login/signup/google/refresh/logout calls
+  // to work at all. Harmless on every other request since no such cookie applies there.
+  withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -232,9 +231,45 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Access tokens are short-lived (15 min) by design -- see JwtService. Rather than logging the
+// user out the moment one expires, silently exchange the refresh-token cookie for a new access
+// token and retry the original request once. Concurrent 401s share a single in-flight refresh
+// call instead of each racing their own.
+let refreshInFlight: Promise<string | null> | null = null;
+
+const isAuthEndpoint = (url?: string) =>
+  !!url && ['/auth/login', '/auth/signup', '/auth/google', '/auth/refresh'].some((p) => url.includes(p));
+
+const refreshAccessToken = (): Promise<string | null> => {
+  if (!refreshInFlight) {
+    refreshInFlight = api.post('/auth/refresh')
+      .then((res) => {
+        const newToken = res.data?.token as string | undefined;
+        if (!newToken) return null;
+        localStorage.setItem('token', newToken);
+        if (res.data?.user) localStorage.setItem('user', JSON.stringify(res.data.user));
+        return newToken;
+      })
+      .catch(() => null)
+      .finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+};
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry
+        && !isAuthEndpoint(originalRequest.url)) {
+      originalRequest._retry = true;
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return api(originalRequest);
+      }
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
@@ -255,6 +290,8 @@ export const authAPI = {
   /** Reset password using the master password that was emailed at signup */
   forgotPassword: (email: string, masterPassword: string, newPassword: string) =>
     api.post('/auth/forgot-password', { email, masterPassword, newPassword }),
+  /** Revokes the refresh-token cookie server-side; best-effort from the caller's perspective. */
+  logout: () => api.post('/auth/logout'),
 };
 
 export const groupAPI = {
@@ -347,15 +384,25 @@ export const groupAPI = {
     }
     return api.get(`/settlements/group/${groupId}/pairwise`);
   },
+  /** Pairwise settlements sitting at MARKED_AS_PAID, awaiting the creditor's confirmation. */
+  getPendingSettlements: (groupId: string | number) => {
+    if (isMockMode()) return Promise.resolve({ data: [] });
+    return api.get(`/settlements/group/${groupId}/pending`);
+  },
+  /** Itemized shares + settlements (with dates) behind the group's balances, for explainability. */
+  getGroupLedger: (groupId: string | number) => {
+    if (isMockMode()) return Promise.resolve({ data: { shares: [], settlements: [] } });
+    return api.get(`/settlements/group/${groupId}/ledger`);
+  },
 };
 
 export const eventAPI = {
-  getByGroup: (groupId: string, startDate: string, endDate: string) => {
+  getByGroup: (groupId: string) => {
     if (isMockMode()) {
       const filtered = mockEvents.filter(e => e.groupId === groupId);
       return Promise.resolve({ data: filtered });
     }
-    return api.get(`/groups/${groupId}/events`, { params: { startDate, endDate } });
+    return api.get(`/groups/${groupId}/events`);
   },
   getById: (id: string) => {
     if (isMockMode()) {
@@ -364,14 +411,13 @@ export const eventAPI = {
     }
     return api.get(`/events/${id}`);
   },
-  create: (groupId: string, title: string, startDate: string, endDate: string) => {
+  create: (groupId: string, title: string, eventDate: string) => {
     if (isMockMode()) {
       const newEvent = {
         id: `event-${Date.now()}`,
         groupId,
         title,
-        startDate,
-        endDate,
+        eventDate,
         totalAmount: 0,
         createdAt: new Date().toISOString(),
       };
@@ -380,13 +426,12 @@ export const eventAPI = {
     }
     const storedUser = localStorage.getItem('user');
     const creatorId = storedUser ? JSON.parse(storedUser).id : null;
-    // Backend expects 'name' field (not 'title') and requires groupId, name, creatorId, startDate, endDate
+    // Backend expects 'name' field (not 'title') and requires groupId, name, creatorId, eventDate
     return api.post('/events', {
       groupId: Number(groupId),
       name: title,
       creatorId,
-      startDate,
-      endDate,
+      eventDate,
     });
   },
 };
@@ -397,21 +442,22 @@ export const subEventAPI = {
       const filtered = mockSubEvents.filter(s => s.eventId === String(eventId));
       return Promise.resolve({ data: filtered });
     }
-    const response = await api.get<any[]>(`/events/${eventId}/subevents`);
-    const subEventsWithShares = await Promise.all(
-      response.data.map(async (subEvent) => {
-        try {
-          const sharesResponse = await api.get(`/subevents/${subEvent.id}/shares`);
-          return {
-            ...subEvent,
-            shares: sharesResponse.data,
-            sharers: sharesResponse.data
-          };
-        } catch {
-          return { ...subEvent, shares: [], sharers: [] };
-        }
-      })
-    );
+    // Single batched call for all shares in the event instead of one request per expense --
+    // avoids overwhelming the small connection pool with N simultaneous requests.
+    const [subEventsRes, sharesRes] = await Promise.all([
+      api.get<any[]>(`/events/${eventId}/subevents`),
+      api.get<any[]>(`/events/${eventId}/shares`).catch(() => ({ data: [] as any[] })),
+    ]);
+    const sharesBySubEvent = new Map<string, any[]>();
+    for (const share of sharesRes.data) {
+      const key = String(share.subEventId);
+      if (!sharesBySubEvent.has(key)) sharesBySubEvent.set(key, []);
+      sharesBySubEvent.get(key)!.push(share);
+    }
+    const subEventsWithShares = subEventsRes.data.map((subEvent) => {
+      const shares = sharesBySubEvent.get(String(subEvent.id)) || [];
+      return { ...subEvent, shares, sharers: shares };
+    });
     return { data: subEventsWithShares };
   },
   create: (data: {
@@ -542,7 +588,8 @@ export const subEventAPI = {
     }
     return api.post('/payments/confirm', { shareId });
   },
-  settlePairwise: (groupId: string | number | null, eventId: string | number | null, debtorId: string | number, creditorId: string | number, amount: number) => {
+  /** Debtor marks a simplified/pairwise settlement as paid. Does not affect balances until the creditor confirms it. */
+  settlePairwise: (groupId: string | number | null, eventId: string | number | null, debtorId: string | number, creditorId: string | number, amount: number, transactionRef?: string, proofUrl?: string) => {
     if (isMockMode()) {
       mockSubEvents.forEach(subEvent => {
         const payerId = subEvent.payerId;
@@ -555,7 +602,12 @@ export const subEventAPI = {
       });
       return Promise.resolve({ data: { success: true } });
     }
-    return api.post('/payments/settle-pairwise', { groupId, eventId, debtorId, creditorId, amount });
+    return api.post('/payments/settle-pairwise', { groupId, eventId, debtorId, creditorId, amount, transactionRef, proofUrl });
+  },
+  /** Creditor confirms a pairwise settlement that's been marked as paid. */
+  confirmPairwiseSettlement: (settlementId: string | number) => {
+    if (isMockMode()) return Promise.resolve({ data: { success: true } });
+    return api.post('/payments/confirm-pairwise', { settlementId });
   },
 };
 

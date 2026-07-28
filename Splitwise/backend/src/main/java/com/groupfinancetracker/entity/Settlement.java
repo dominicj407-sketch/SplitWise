@@ -50,6 +50,26 @@ public class Settlement {
     @Column(length = 500)
     private String note;
 
+    /**
+     * Workflow state for pairwise/circular settlements initiated via settle-pairwise
+     * (mark-as-paid by the debtor, then confirmed by the creditor) -- mirrors PaymentStatus
+     * on shares. Null for legacy rows created before this field existed, and for settlements
+     * emitted by confirming an itemized share (those are already-final facts): both are
+     * treated as CONFIRMED. Only CONFIRMED (or null) settlements count toward balance math.
+     */
+    @Enumerated(EnumType.STRING)
+    private PaymentState status;
+
+    private Instant markedAt;
+
+    private Instant confirmedAt;
+
+    @Column(name = "transaction_ref")
+    private String transactionRef;
+
+    @Column(name = "proof_url")
+    private String proofUrl;
+
     @Version
     private Long version;
 }

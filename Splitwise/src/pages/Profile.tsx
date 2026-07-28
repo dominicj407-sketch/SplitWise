@@ -306,7 +306,7 @@ export const Profile = () => {
             {reportData.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
-                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400 mb-1">
+                  <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-1">
                     <AlertCircle className="w-4 h-4" />
                     <span className="text-xs font-semibold uppercase tracking-wide">You Owe</span>
                   </div>
@@ -314,7 +314,7 @@ export const Profile = () => {
                   <p className="text-xs text-gray-400 mt-0.5">Unpaid / Pending shares</p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
-                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400 mb-1">
+                  <div className="flex items-center gap-2 text-primary-600 dark:text-primary-400 mb-1">
                     <CheckCircle className="w-4 h-4" />
                     <span className="text-xs font-semibold uppercase tracking-wide">You Paid</span>
                   </div>

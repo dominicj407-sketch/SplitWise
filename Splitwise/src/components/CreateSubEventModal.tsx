@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Modal } from './Modal';
-import { subEventAPI, eventAPI, groupAPI, userAPI } from '../lib/api';
+import { subEventAPI, eventAPI, groupAPI } from '../lib/api';
 import { User } from '../types';
 import { useToast } from './Toast';
 
@@ -40,29 +40,21 @@ export const CreateSubEventModal = ({
         const response = await eventAPI.getById(eventId);
         const groupResponse = await groupAPI.getById(response.data.groupId);
         const groupData = groupResponse.data;
-        // Backend returns memberIds (Set<Long>), fetch all users and filter
-        try {
-          const usersResponse = await userAPI.getAll();
-          const allUsers: User[] = usersResponse.data;
-          const memberIdSet = new Set(
-            (groupData.memberIds || groupData.members?.map((m: any) => m.id) || []).map((id: any) => String(id))
-          );
-          const members = allUsers.filter((u: User) => memberIdSet.has(String(u.id)));
-          setGroupMembers(members);
-          // Default payer to current logged-in user if they are a member (create mode only)
-          if (!isEdit) {
-            const storedUser = localStorage.getItem('user');
-            if (storedUser) {
-              const currentUser = JSON.parse(storedUser);
-              if (memberIdSet.has(String(currentUser.id))) {
-                setPayerId(currentUser.id);
-              } else if (members.length > 0) {
-                setPayerId(members[0].id);
-              }
+        // GroupResponse embeds full member profiles now, so no separate GET /users call is needed.
+        const members: User[] = groupData.members || [];
+        const memberIdSet = new Set(members.map((m) => String(m.id)));
+        setGroupMembers(members);
+        // Default payer to current logged-in user if they are a member (create mode only)
+        if (!isEdit) {
+          const storedUser = localStorage.getItem('user');
+          if (storedUser) {
+            const currentUser = JSON.parse(storedUser);
+            if (memberIdSet.has(String(currentUser.id))) {
+              setPayerId(currentUser.id);
+            } else if (members.length > 0) {
+              setPayerId(members[0].id);
             }
           }
-        } catch {
-          setGroupMembers(groupData.members || []);
         }
       } catch (error) {
         showToast('Failed to load group members', 'error');

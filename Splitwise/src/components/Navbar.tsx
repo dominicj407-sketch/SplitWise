@@ -1,11 +1,9 @@
-import { Moon, Sun, User, LogOut, Wallet } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
+import { User, LogOut, Wallet } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
 export const Navbar = () => {
-  const { isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
@@ -25,21 +23,6 @@ export const Navbar = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
-              aria-label="Toggle theme"
-              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              <span key={isDark ? 'sun' : 'moon'} className="block animate-spin-once">
-                {isDark ? (
-                  <Sun className="w-5 h-5 text-yellow-400" />
-                ) : (
-                  <Moon className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                )}
-              </span>
-            </button>
-
             <div className="relative">
               <button
                 onClick={() => setShowMenu(!showMenu)}

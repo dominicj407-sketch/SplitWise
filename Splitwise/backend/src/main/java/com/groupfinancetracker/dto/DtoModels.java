@@ -51,7 +51,7 @@ public final class DtoModels {
         }
 
         public record GroupResponse(Long id, String name, Long creatorId, Set<Long> memberIds, Instant createdAt,
-                        String groupCode, BigDecimal budgetLimit) {
+                        String groupCode, BigDecimal budgetLimit, List<UserResponse> members) {
         }
 
         public record AddMemberRequest(@NotNull Long userId) {
@@ -64,11 +64,11 @@ public final class DtoModels {
         }
 
         public record CreateEventRequest(@NotNull Long groupId, @NotBlank String name, @NotNull Long creatorId,
-                        LocalDate startDate, LocalDate endDate) {
+                        LocalDate eventDate) {
         }
 
         public record EventResponse(Long id, String name, Long groupId, Long creatorId, Instant createdAt,
-                        LocalDate startDate, LocalDate endDate, Integer weekNumber, Integer year, BigDecimal totalAmount) {
+                        LocalDate eventDate, Integer weekNumber, Integer year, BigDecimal totalAmount) {
         }
 
         public record CreateSubEventRequest(
@@ -141,7 +141,24 @@ public final class DtoModels {
         public record PairwiseOwe(Long fromUserId, Long toUserId, BigDecimal amount, String description) {
         }
 
-        public record GroupPairwise(Long groupId, List<PairwiseOwe> owes, List<PairwiseBalance> pairwiseBalances) {
+        public record GroupPairwise(Long groupId, List<PairwiseOwe> owes, List<PairwiseBalance> pairwiseBalances,
+                        List<PairwiseBalance> rawPairwiseBalances) {
+        }
+
+        /** A pairwise/circular settlement, at any point in its mark-as-paid -> confirm lifecycle. */
+        public record SettlementLedgerEntry(Long id, Long groupId, Long fromUserId, String fromUserName,
+                        Long toUserId, String toUserName, BigDecimal amount, String status, Instant markedAt,
+                        Instant confirmedAt, Instant createdAt, String transactionRef, String proofUrl, String note) {
+        }
+
+        /** One itemized expense-share debt, for the settlement explainability breakdown. */
+        public record ShareLedgerEntry(Long subEventId, String description, LocalDate subEventDate,
+                        Long debtorId, String debtorName, Long creditorId, String creditorName, BigDecimal amount,
+                        PaymentState status) {
+        }
+
+        public record GroupLedgerResponse(Long groupId, List<ShareLedgerEntry> shares,
+                        List<SettlementLedgerEntry> settlements) {
         }
 
         public record SubmitJoinRequest(@NotBlank String groupCode, @NotNull Long userId) {
@@ -166,10 +183,12 @@ public final class DtoModels {
 
         public record WeeklySettlementResponse(Integer weekNumber, Integer year, Long currentUser,
                         List<ToPayEntry> toPay,
-                        List<ToReceiveEntry> toReceive, List<PairwiseBalance> pairwiseBalances) {
+                        List<ToReceiveEntry> toReceive, List<PairwiseBalance> pairwiseBalances,
+                        List<PairwiseBalance> rawPairwiseBalances) {
         }
 
-        public record EventSettlementResponse(Long eventId, List<PairwiseBalance> pairwiseBalances) {
+        public record EventSettlementResponse(Long eventId, List<PairwiseBalance> pairwiseBalances,
+                        List<PairwiseBalance> rawPairwiseBalances) {
         }
 
         public record NewEventWarningResponse(boolean warn, boolean blocked, Integer droppingWeek, Integer droppingYear,

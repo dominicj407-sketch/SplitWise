@@ -38,11 +38,10 @@ public class Event {
     @Builder.Default
     private List<SubEvent> subEvents = new ArrayList<>();
 
-    @Column(name = "start_date", nullable = false)
-    private LocalDate startDate;
-
-    @Column(name = "end_date", nullable = false)
-    private LocalDate endDate;
+    // Nullable at the DB level: Hibernate's ddl-auto=update cannot add a NOT NULL
+    // column to an already-populated table. Non-null is enforced by EventService instead.
+    @Column(name = "event_date")
+    private LocalDate eventDate;
 
     @Column(name = "week_number")
     private Integer weekNumber;
@@ -71,10 +70,10 @@ public class Event {
     private void computeWeekYear() {
         if (this.weekNumber != null && this.year != null)
             return;
-        if (this.startDate != null) {
+        if (this.eventDate != null) {
             WeekFields wf = WeekFields.ISO;
-            this.weekNumber = this.startDate.get(wf.weekOfWeekBasedYear());
-            this.year = this.startDate.get(wf.weekBasedYear());
+            this.weekNumber = this.eventDate.get(wf.weekOfWeekBasedYear());
+            this.year = this.eventDate.get(wf.weekBasedYear());
         } else {
             this.weekNumber = null;
             this.year = null;

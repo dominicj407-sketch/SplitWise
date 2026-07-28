@@ -35,12 +35,6 @@ public class SubEventService {
                 .orElseThrow(() -> new NotFoundException("Payer not found: " + req.payerId()));
         validatePayerIsMember(event, payer.getId());
 
-        // Validate date
-        if (req.subEventDate().isBefore(event.getStartDate()) || req.subEventDate().isAfter(event.getEndDate())) {
-            throw new IllegalArgumentException("Expense date must be within event dates (" + event.getStartDate()
-                    + " to " + event.getEndDate() + ")");
-        }
-
         int weekIndex = computeWeekIndex(req.subEventDate());
 
         SubEvent se = SubEvent.builder()
@@ -72,11 +66,6 @@ public class SubEventService {
         User payer = userRepository.findById(req.payerId())
                 .orElseThrow(() -> new NotFoundException("Payer not found: " + req.payerId()));
         validatePayerIsMember(event, payer.getId());
-
-        if (req.subEventDate().isBefore(event.getStartDate()) || req.subEventDate().isAfter(event.getEndDate())) {
-            throw new IllegalArgumentException("Expense date must be within event dates (" + event.getStartDate()
-                    + " to " + event.getEndDate() + ")");
-        }
 
         // Reset the itemized ledger rows and shares for this expense, then rebuild them.
         settlementRepository.deleteBySubEvent_Id(se.getId());

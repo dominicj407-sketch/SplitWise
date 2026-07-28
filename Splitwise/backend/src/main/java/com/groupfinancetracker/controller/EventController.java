@@ -23,7 +23,7 @@ public class EventController {
                 : null;
         Long actorId = details instanceof Long ? (Long) details : req.creatorId();
         return eventService
-                .create(new CreateEventRequest(req.groupId(), req.name(), actorId, req.startDate(), req.endDate()));
+                .create(new CreateEventRequest(req.groupId(), req.name(), actorId, req.eventDate()));
     }
 
     @GetMapping("/api/groups/{groupId}/events")

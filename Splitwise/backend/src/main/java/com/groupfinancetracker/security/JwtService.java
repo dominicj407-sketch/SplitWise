@@ -14,7 +14,11 @@ public class JwtService {
     @Value("${app.jwt.secret:dev-secret-change-me}")
     private String secret;
 
-    @Value("${app.jwt.ttlSeconds:86400}")
+    // Short-lived on purpose: this is the bearer token read straight from localStorage on every
+    // request, so a leaked one (XSS, logs, etc.) should only be usable for minutes, not a full day.
+    // Session longevity now comes from the httpOnly-cookie refresh token (see RefreshTokenService),
+    // which the frontend exchanges for a new access token via POST /api/auth/refresh.
+    @Value("${app.jwt.ttlSeconds:900}")
     private long ttlSeconds;
 
     public String generateToken(Long userId, String email) {

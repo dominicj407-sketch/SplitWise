@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
-import { Users, Calendar, Plus, ChevronLeft, ChevronRight, QrCode, Search, Download, LogOut, TrendingDown, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
-import { groupAPI, eventAPI, userAPI, subEventAPI } from '../lib/api';
+import { Users, Calendar, Plus, ChevronLeft, ChevronRight, QrCode, Search, Download, LogOut, TrendingDown, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { groupAPI, eventAPI } from '../lib/api';
 import { Group, Event, User } from '../types';
 import { useToast } from '../components/Toast';
 import { CreateEventModal } from '../components/CreateEventModal';
@@ -22,15 +22,8 @@ export const GroupDetail = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [members, setMembers] = useState<User[]>([]);
   const [groupSettlements, setGroupSettlements] = useState<any[]>([]);
-  
-  // Settle modal state
-  const [showSettleModal, setShowSettleModal] = useState(false);
-  const [pendingSettle, setPendingSettle] = useState<{
-    debtorId: any; creditorId: any;
-    debtorName: string; creditorName: string;
-    amount: number; isCurrentUserDebtor: boolean;
-  } | null>(null);
-  const [isSettling, setIsSettling] = useState(false);
+  const [rawGroupSettlements, setRawGroupSettlements] = useState<any[]>([]);
+  const [showRawBreakdown, setShowRawBreakdown] = useState(false);
 
   // Search & Invite states
   const [searchText, setSearchText] = useState('');
@@ -48,32 +41,25 @@ export const GroupDetail = () => {
     if (!groupId) return;
 
     try {
-      const groupResponse = await groupAPI.getById(groupId);
-      const groupData = groupResponse.data;
+      // These three are all independent of each other -- fetch in parallel instead of
+      // chaining sequentially (each round trip carries real network latency).
+      const [groupResult, pairwiseResult] = await Promise.all([
+        groupAPI.getById(groupId),
+        groupAPI.getGroupPairwise(groupId).catch(() => ({ data: {} as any })),
+        fetchEvents(),
+      ]);
+
+      const groupData = groupResult.data;
       setGroup(groupData);
+      // GroupResponse now embeds full member profiles, so there's no need for a separate
+      // GET /users call (which fetched every user in the system) just to resolve names.
+      setMembers(groupData.members || []);
 
-      // Fetch all users to resolve memberIds to User objects
-      try {
-        const usersResponse = await userAPI.getAll();
-        const allUsers: User[] = usersResponse.data;
-        const memberIdSet = new Set(
-          (groupData.memberIds || []).map((id: string | number) => String(id))
-        );
-        setMembers(allUsers.filter((u: User) => memberIdSet.has(String(u.id))));
-      } catch {
-        setMembers([]);
-      }
-
-      // Fetch group simplified pairwise settlements
-      try {
-        const setRes = await groupAPI.getGroupPairwise(groupId);
-        // Backend now returns { groupId, pairwiseBalances: [...] } with user1Id/user1/user2Id/user2/amount
-        setGroupSettlements(setRes.data?.pairwiseBalances || []);
-      } catch {
-        setGroupSettlements([]);
-      }
-
-      await fetchEvents();
+      // Backend returns { groupId, pairwiseBalances: [...], rawPairwiseBalances: [...] }
+      // with user1Id/user1/user2Id/user2/amount. rawPairwiseBalances is the pre-simplification
+      // breakdown -- what circular/indirect debts a simplified edge actually collapsed.
+      setGroupSettlements(pairwiseResult.data?.pairwiseBalances || []);
+      setRawGroupSettlements(pairwiseResult.data?.rawPairwiseBalances || []);
     } catch (error) {
       showToast('Failed to load group', 'error');
     } finally {
@@ -93,43 +79,12 @@ export const GroupDetail = () => {
     }
   };
 
-  const initiateSettle = (item: any, isDebtor: boolean) => {
-    setPendingSettle({
-      debtorId: item.user1Id,
-      creditorId: item.user2Id,
-      debtorName: item.user1,
-      creditorName: item.user2,
-      amount: Number(item.amount),
-      isCurrentUserDebtor: isDebtor,
-    });
-    setShowSettleModal(true);
-  };
-
-  const confirmSettle = async () => {
-    if (!pendingSettle || !groupId) return;
-    setIsSettling(true);
-    try {
-      await subEventAPI.settlePairwise(
-        Number(groupId), null,
-        pendingSettle.debtorId, pendingSettle.creditorId,
-        pendingSettle.amount
-      );
-      showToast('Settlement confirmed! All related payments marked as settled.', 'success');
-      setShowSettleModal(false);
-      setPendingSettle(null);
-      fetchGroupData();
-    } catch (err: any) {
-      showToast(err.response?.data?.message || 'Failed to settle balance', 'error');
-    } finally {
-      setIsSettling(false);
-    }
-  };
 
   const fetchEvents = async () => {
     if (!groupId) return;
     try {
       // Backend returns all events for the group; we filter client-side by week
-      const response = await eventAPI.getByGroup(groupId, '', '');
+      const response = await eventAPI.getByGroup(groupId);
       const all: Event[] = response.data;
       setAllEvents(all);
       filterEventsByWeek(all, currentWeekStart);
@@ -146,34 +101,33 @@ export const GroupDetail = () => {
     const endStr = fmt(weekEnd);
 
     const inWeek = all.filter(e => {
-      const s = e.startDate ? e.startDate.slice(0, 10) : '';
+      const s = e.eventDate ? e.eventDate.slice(0, 10) : '';
       return s >= startStr && s <= endStr;
     });
     setEvents(inWeek);
 
-    // Fetch subevents for events in this week to compute total spend for budget bar
-    if (!isMockMode()) {
-      try {
-        let total = 0;
-        for (const ev of inWeek) {
-          const subRes = await subEventAPI.getByEvent(String(ev.id));
-          for (const sub of subRes.data) {
-            total += Number(sub.totalAmount) || 0;
-          }
-        }
-        setWeeklySpent(total);
-      } catch {
-        setWeeklySpent(inWeek.reduce((s, e) => s + (e.totalAmount || 0), 0));
-      }
-    } else {
-      setWeeklySpent(inWeek.reduce((s, e) => s + (e.totalAmount || 0), 0));
-    }
+    // Each event already carries its own totalAmount (server-computed) -- no need to
+    // re-fetch every expense + share in the week just to sum it client-side.
+    setWeeklySpent(inWeek.reduce((s, e) => s + (Number(e.totalAmount) || 0), 0));
   };
-
-  const isMockMode = () => localStorage.getItem('mockMode') === 'true';
 
   useEffect(() => {
     fetchGroupData();
+  }, [groupId]);
+
+  // Settlement balances change from other pages/tabs (e.g. confirming a payment on the
+  // Manage Settlements page) -- refetch when the user comes back to this tab/page instead
+  // of leaving the Settlement Center widget showing whatever was true at the last mount.
+  useEffect(() => {
+    const onFocus = () => fetchGroupData();
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchGroupData(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
 
   useEffect(() => {
@@ -206,11 +160,10 @@ export const GroupDetail = () => {
   };
 
   const handleExportCSV = () => {
-    const headers = ["Event Title", "Start Date", "End Date", "Total Amount (INR)"];
+    const headers = ["Event Title", "Event Date", "Total Amount (INR)"];
     const rows = events.map(e => [
       e.name || e.title || "Unnamed Event",
-      new Date(e.startDate).toLocaleDateString(),
-      new Date(e.endDate).toLocaleDateString(),
+      new Date(e.eventDate).toLocaleDateString(),
       (e.totalAmount || 0).toFixed(2)
     ]);
     const csvContent = "data:text/csv;charset=utf-8," 
@@ -387,10 +340,42 @@ export const GroupDetail = () => {
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
-              Net balances · Circular debts resolved
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+                Net balances · Circular debts resolved
+              </p>
+              {rawGroupSettlements.length > 0 && (
+                <button
+                  onClick={() => setShowRawBreakdown(v => !v)}
+                  className="text-xs font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+                >
+                  {showRawBreakdown ? 'Hide' : 'Show'} direct debts ({rawGroupSettlements.length})
+                </button>
+              )}
+            </div>
           </div>
+
+          {showRawBreakdown && rawGroupSettlements.length > 0 && (
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                These are the actual direct debts before simplification
+                {rawGroupSettlements.length > groupSettlements.length
+                  ? ` — collapsed from ${rawGroupSettlements.length} direct debts into ${groupSettlements.length} payment${groupSettlements.length === 1 ? '' : 's'} above (circular/indirect debt resolved).`
+                  : '.'}
+              </p>
+              <div className="space-y-1.5">
+                {rawGroupSettlements.map((item: any, idx: number) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm">
+                    <span className="font-medium text-gray-700 dark:text-gray-200">{item.user1}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="font-medium text-gray-700 dark:text-gray-200">{item.user2}</span>
+                    <span className="text-gray-400 dark:text-gray-500">·</span>
+                    <span className="font-semibold text-gray-900 dark:text-white">₹{Number(item.amount).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {groupSettlements.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
@@ -409,8 +394,8 @@ export const GroupDetail = () => {
                   <div
                     key={idx}
                     className={`flex flex-col sm:flex-row sm:items-center gap-4 px-6 py-4 transition ${
-                      isDebtor   ? 'bg-red-50/60   dark:bg-red-950/10' :
-                      isCreditor ? 'bg-green-50/60 dark:bg-green-950/10' : ''
+                      isDebtor   ? 'bg-gray-800/60 dark:bg-gray-800/40' :
+                      isCreditor ? 'bg-primary-50/60 dark:bg-primary-950/20' : ''
                     }`}
                   >
                     {/* Direction label */}
@@ -418,20 +403,20 @@ export const GroupDetail = () => {
                       <div className="flex flex-col items-start gap-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            isDebtor ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            isDebtor ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                           }`}>
                             {item.user1}{isDebtor ? ' (You)' : ''}
                           </span>
                           <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            isCreditor ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            isCreditor ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                           }`}>
                             {item.user2}{isCreditor ? ' (You)' : ''}
                           </span>
                         </div>
                         <p className={`text-xs mt-0.5 ${
-                          isDebtor   ? 'text-red-600 dark:text-red-400' :
-                          isCreditor ? 'text-green-600 dark:text-green-400' :
+                          isDebtor   ? 'text-gray-500 dark:text-gray-400' :
+                          isCreditor ? 'text-primary-600 dark:text-primary-400' :
                                        'text-gray-500 dark:text-gray-400'
                         }`}>
                           {isDebtor   && `You owe ${item.user2} — this is the net after offsetting mutual payments`}
@@ -446,7 +431,7 @@ export const GroupDetail = () => {
                       </div>
                     </div>
 
-                    {/* Amount + Settle button */}
+                    {/* Amount */}
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <div className="text-right">
                         <p className="text-lg font-bold text-primary-600 dark:text-primary-400">
@@ -454,21 +439,10 @@ export const GroupDetail = () => {
                         </p>
                         <p className="text-xs text-gray-400">net amount</p>
                       </div>
-                      {isInvolved ? (
-                        <button
-                          id={`settle-btn-${idx}`}
-                          onClick={() => initiateSettle(item, !!isDebtor)}
-                          className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-sm ${
-                            isDebtor
-                              ? 'bg-red-600 hover:bg-red-700 active:bg-red-800 text-white'
-                              : 'bg-green-600 hover:bg-green-700 active:bg-green-800 text-white'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          {isDebtor ? "Settle" : 'Confirm Received'}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-400 dark:text-gray-500 italic">(not involved)</span>
+                      {isInvolved && (
+                        <span className={`text-xs font-semibold ${isDebtor ? 'text-gray-500 dark:text-gray-400' : 'text-primary-600 dark:text-primary-400'}`}>
+                          {isDebtor ? 'You owe' : "You're owed"}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -476,6 +450,14 @@ export const GroupDetail = () => {
               })}
             </div>
           )}
+          <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 text-right">
+            <button
+              onClick={() => navigate(`/groups/${groupId}/settlements`)}
+              className="text-sm font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+            >
+              Manage Settlements →
+            </button>
+          </div>
         </div>
 
 
@@ -549,8 +531,7 @@ export const GroupDetail = () => {
                   {event.name || event.title}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  {new Date(event.startDate).toLocaleDateString()} -{' '}
-                  {new Date(event.endDate).toLocaleDateString()}
+                  {new Date(event.eventDate).toLocaleDateString()}
                 </p>
                 <p className="text-xl font-bold text-primary-600 dark:text-primary-400">
                   ₹{(event.totalAmount || 0).toFixed(2)}
@@ -594,83 +575,6 @@ export const GroupDetail = () => {
             >
               Close
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* ===== Settlement Confirmation Modal ===== */}
-      {showSettleModal && pendingSettle && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
-            {/* Header */}
-            <div className={`px-6 py-4 ${
-              pendingSettle.isCurrentUserDebtor
-                ? 'bg-gradient-to-r from-red-500 to-orange-500'
-                : 'bg-gradient-to-r from-green-500 to-emerald-500'
-            }`}>
-              <h3 className="text-white font-bold text-lg">
-                {pendingSettle.isCurrentUserDebtor ? '💸 Confirm Payment Settlement' : '✅ Confirm Receipt'}
-              </h3>
-              <p className="text-white/80 text-xs mt-0.5">
-                {pendingSettle.isCurrentUserDebtor
-                  ? 'Confirm that you have paid this net balance'
-                  : 'Confirm that you have received this net balance'}
-              </p>
-            </div>
-
-            {/* Settlement Details */}
-            <div className="px-6 py-5">
-              {/* Net Amount Card */}
-              <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-4 text-center">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Net amount to settle</p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white">
-                  ₹{pendingSettle.amount.toFixed(2)}
-                </p>
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <span className="px-2.5 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded-full text-xs font-bold">
-                    {pendingSettle.debtorName}
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-gray-400" />
-                  <span className="px-2.5 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full text-xs font-bold">
-                    {pendingSettle.creditorName}
-                  </span>
-                </div>
-              </div>
-
-              {/* Explanation */}
-              <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300 mb-5">
-                <p className="font-semibold mb-1">ℹ️ How this works</p>
-                <p>This net amount is calculated after offsetting any mutual payments between {pendingSettle.debtorName} and {pendingSettle.creditorName}.</p>
-                <p className="mt-1">Confirming will mark <b>all payment records</b> between these two users as <b>settled/confirmed</b>. Only ₹{pendingSettle.amount.toFixed(2)} needs to actually change hands.</p>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setShowSettleModal(false); setPendingSettle(null); }}
-                  disabled={isSettling}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-semibold transition"
-                >
-                  <XCircle className="w-4 h-4" /> Cancel
-                </button>
-                <button
-                  id="confirm-settle-btn"
-                  onClick={confirmSettle}
-                  disabled={isSettling}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold text-white transition ${
-                    pendingSettle.isCurrentUserDebtor
-                      ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
-                      : 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
-                  }`}
-                >
-                  {isSettling ? (
-                    <><span className="animate-spin">⏳</span> Processing...</>
-                  ) : (
-                    <><CheckCircle2 className="w-4 h-4" /> {pendingSettle.isCurrentUserDebtor ? 'Confirm Payment' : 'Confirm Receipt'}</>
-                  )}
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}

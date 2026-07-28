@@ -29,6 +29,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final EmailService emailService;
+    private final RefreshTokenService refreshTokenService;
 
     @Value("${app.google.client-id}")
     private String googleClientId;
@@ -38,9 +39,14 @@ public class AuthService {
             "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
     private static final int MASTER_PWD_LENGTH = 12;
 
+    /** An access token (short-lived JWT, returned to the client) paired with the raw refresh
+     *  token (long-lived, opaque) the controller sets as an httpOnly cookie. */
+    public record AuthResult(DtoModels.AuthResponse response, String refreshToken) {
+    }
+
     // ─── Login ────────────────────────────────────────────────────────────────
 
-    public DtoModels.AuthResponse login(DtoModels.LoginRequest req) {
+    public AuthResult login(DtoModels.LoginRequest req) {
         User user = userRepository.findByEmail(req.email())
                 .orElseThrow(() -> new NotFoundException("Invalid credentials"));
         if ("GOOGLE_OAUTH".equals(user.getPasswordHash())) {
@@ -49,13 +55,13 @@ public class AuthService {
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
             throw new NotFoundException("Invalid credentials");
         }
-        return buildAuthResponse(user);
+        return buildAuthResult(user);
     }
 
     // ─── Signup ───────────────────────────────────────────────────────────────
 
     @Transactional
-    public DtoModels.AuthResponse signup(DtoModels.CreateUserRequest req) {
+    public AuthResult signup(DtoModels.CreateUserRequest req) {
         if (userRepository.findByEmail(req.email()).isPresent()) {
             throw new IllegalStateException("Email already registered");
         }
@@ -75,13 +81,13 @@ public class AuthService {
         // Send welcome email asynchronously (won't block the response)
         emailService.sendWelcomeWithMasterPassword(user.getName(), user.getEmail(), masterPassword);
 
-        return buildAuthResponse(user);
+        return buildAuthResult(user);
     }
 
     // ─── Google OAuth ─────────────────────────────────────────────────────────
 
     @Transactional
-    public DtoModels.AuthResponse googleLogin(DtoModels.GoogleAuthRequest req) {
+    public AuthResult googleLogin(DtoModels.GoogleAuthRequest req) {
         GoogleIdToken.Payload payload = verifyGoogleToken(req.credential());
 
         String googleId = payload.getSubject();
@@ -116,7 +122,7 @@ public class AuthService {
             emailService.sendWelcomeWithMasterPassword(user.getName(), user.getEmail(), masterPassword);
         }
 
-        return buildAuthResponse(user);
+        return buildAuthResult(user);
     }
 
     // ─── Forgot Password ──────────────────────────────────────────────────────
@@ -137,14 +143,39 @@ public class AuthService {
         emailService.sendPasswordChangedNotification(user.getName(), user.getEmail());
     }
 
+    // ─── Refresh / Logout ─────────────────────────────────────────────────────
+
+    /**
+     * Exchanges a valid refresh token for a new access token, rotating the refresh token.
+     * Transactional so the Hibernate session (and the rotated RefreshToken's lazy User
+     * association) stays open across both the rotate() call and the token/DTO building below --
+     * without this, the User proxy returned by rotate() throws LazyInitializationException the
+     * moment buildAuthResult() reads a field off it, since rotate()'s own transaction has
+     * already closed by the time control returns here.
+     */
+    @Transactional
+    public AuthResult refreshAccess(String rawRefreshToken) {
+        RefreshTokenService.Rotated rotated = refreshTokenService.rotate(rawRefreshToken);
+        return buildAuthResult(rotated.user(), rotated.rawToken());
+    }
+
+    /** Revokes the refresh token so it (and the session it represents) can no longer be used. */
+    public void logout(String rawRefreshToken) {
+        refreshTokenService.revoke(rawRefreshToken);
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private DtoModels.AuthResponse buildAuthResponse(User user) {
+    private AuthResult buildAuthResult(User user) {
+        return buildAuthResult(user, refreshTokenService.issue(user));
+    }
+
+    private AuthResult buildAuthResult(User user, String refreshToken) {
         String token = jwtService.generateToken(user.getId(), user.getEmail());
         var userDto  = new DtoModels.UserResponse(
                 user.getId(), user.getName(), user.getEmail(),
                 user.getUpiId(), user.getCreatedAt());
-        return new DtoModels.AuthResponse(token, userDto);
+        return new AuthResult(new DtoModels.AuthResponse(token, userDto), refreshToken);
     }
 
     private String generateMasterPassword() {

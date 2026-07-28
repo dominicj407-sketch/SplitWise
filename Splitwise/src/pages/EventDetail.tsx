@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
-import { Calendar, Plus, DollarSign, Users, CheckCircle, QrCode, ExternalLink, ArrowRight, TrendingDown, CheckCircle2, XCircle } from 'lucide-react';
+import { Calendar, Plus, DollarSign, Users, CheckCircle, QrCode, ExternalLink, ArrowRight, TrendingDown } from 'lucide-react';
 import { eventAPI, subEventAPI, groupAPI } from '../lib/api';
 import { Event, SubEvent } from '../types';
 import { useToast } from '../components/Toast';
@@ -32,6 +32,7 @@ const canConfirm = (status: string) =>
 
 export const EventDetail = () => {
   const { eventId } = useParams<{ eventId: string }>();
+  const navigate = useNavigate();
   const [event, setEvent] = useState<Event | null>(null);
   const [subEvents, setSubEvents] = useState<SubEvent[]>([]);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
@@ -39,15 +40,8 @@ export const EventDetail = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingSubEvent, setEditingSubEvent] = useState<any>(null);
   const [settlementSummary, setSettlementSummary] = useState<any[]>([]);
-
-  // Settle modal state
-  const [showSettleModal, setShowSettleModal] = useState(false);
-  const [pendingSettle, setPendingSettle] = useState<{
-    debtorId: any; creditorId: any;
-    debtorName: string; creditorName: string;
-    amount: number; isCurrentUserDebtor: boolean;
-  } | null>(null);
-  const [isSettling, setIsSettling] = useState(false);
+  const [rawSettlementSummary, setRawSettlementSummary] = useState<any[]>([]);
+  const [showRawBreakdown, setShowRawBreakdown] = useState(false);
 
   // UPI states
   const [showQRModal, setShowQRModal] = useState(false);
@@ -90,40 +84,24 @@ export const EventDetail = () => {
     if (!eventId) return;
 
     try {
-      const [eventResponse, subEventsResponse] = await Promise.all([
+      // These are all independent of each other -- fetch in parallel instead of chaining
+      // sequentially (each round trip carries real network latency).
+      const [eventResponse, subEventsResponse, settlementRes] = await Promise.all([
         eventAPI.getById(eventId),
         subEventAPI.getByEvent(eventId),
+        isMockMode()
+          ? Promise.resolve({ data: {} as any })
+          : api.get(`/settlements/event/${eventId}/pairwise`).catch(() => ({ data: {} as any })),
       ]);
       setEvent(eventResponse.data);
       setSubEvents(subEventsResponse.data);
+      setSettlementSummary(settlementRes.data?.pairwiseBalances || []);
+      setRawSettlementSummary(settlementRes.data?.rawPairwiseBalances || []);
 
-      // Fetch group members using memberIds returned by backend
+      // Group members depend on the event's groupId, so this fetch has to follow the above.
+      // GroupResponse embeds full member profiles now, so no separate GET /users call is needed.
       const groupRes = await groupAPI.getById(eventResponse.data.groupId);
-      const groupData = groupRes.data;
-      try {
-        const { userAPI } = await import('../lib/api');
-        const usersRes = await userAPI.getAll();
-        const allUsers = usersRes.data;
-        const memberIdSet = new Set(
-          (groupData.memberIds || groupData.members?.map((m: any) => m.id) || []).map((id: any) => String(id))
-        );
-        setGroupMembers(allUsers.filter((u: any) => memberIdSet.has(String(u.id))));
-      } catch {
-        setGroupMembers(groupData.members || []);
-      }
-
-      // Fetch simplified settlement summary for this event
-      if (!isMockMode()) {
-        try {
-          const settlementRes = await api.get(`/settlements/event/${eventId}/pairwise`);
-          setSettlementSummary(settlementRes.data?.pairwiseBalances || []);
-        } catch {
-          setSettlementSummary([]);
-        }
-      } else {
-        // Compute mock settlement from subevents
-        setSettlementSummary([]);
-      }
+      setGroupMembers(groupRes.data.members || []);
     } catch (error) {
       showToast('Failed to load event', 'error');
     } finally {
@@ -193,38 +171,6 @@ export const EventDetail = () => {
     }
   };
 
-  const initiateSettle = (item: any, isDebtor: boolean) => {
-    setPendingSettle({
-      debtorId: item.user1Id,
-      creditorId: item.user2Id,
-      debtorName: item.user1,
-      creditorName: item.user2,
-      amount: Number(item.amount),
-      isCurrentUserDebtor: isDebtor,
-    });
-    setShowSettleModal(true);
-  };
-
-  const confirmSettle = async () => {
-    if (!pendingSettle || !eventId) return;
-    setIsSettling(true);
-    try {
-      await subEventAPI.settlePairwise(
-        null, Number(eventId),
-        pendingSettle.debtorId, pendingSettle.creditorId,
-        pendingSettle.amount
-      );
-      showToast('Settlement confirmed! All related payments marked as settled.', 'success');
-      setShowSettleModal(false);
-      setPendingSettle(null);
-      fetchEventData();
-    } catch (err: any) {
-      showToast(err.response?.data?.message || 'Failed to settle balance', 'error');
-    } finally {
-      setIsSettling(false);
-    }
-  };
-
   const getStatusBadge = (rawStatus: string) => {
     const display = normalizeStatus(rawStatus);
     const badges: Record<string, string> = {
@@ -273,14 +219,16 @@ export const EventDetail = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{event.name || event.title}</h1>
-          <div className="flex items-center gap-4 text-gray-600 dark:text-gray-400">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4 text-gray-600 dark:text-gray-400 flex-wrap">
+            <div className="flex items-center gap-2" title="The date the event happened">
               <Calendar className="w-5 h-5" />
-              <span>
-                {new Date(event.startDate).toLocaleDateString()} -{' '}
-                {new Date(event.endDate).toLocaleDateString()}
-              </span>
+              <span>{new Date(event.eventDate).toLocaleDateString()}</span>
             </div>
+            {event.createdAt && (
+              <span className="text-xs text-gray-400 dark:text-gray-500" title="When this event was added to the app">
+                Added {new Date(event.createdAt).toLocaleDateString()}
+              </span>
+            )}
             <div className="flex items-center gap-2">
               <DollarSign className="w-5 h-5" />
               <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
@@ -521,10 +469,42 @@ export const EventDetail = () => {
                   {settlementSummary.length} pending
                 </span>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
-                Net balances · Circular debts resolved
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+                  Net balances · Circular debts resolved
+                </p>
+                {rawSettlementSummary.length > 0 && (
+                  <button
+                    onClick={() => setShowRawBreakdown(v => !v)}
+                    className="text-xs font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    {showRawBreakdown ? 'Hide' : 'Show'} direct debts ({rawSettlementSummary.length})
+                  </button>
+                )}
+              </div>
             </div>
+
+            {showRawBreakdown && rawSettlementSummary.length > 0 && (
+              <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  These are the actual direct debts before simplification
+                  {rawSettlementSummary.length > settlementSummary.length
+                    ? ` — collapsed from ${rawSettlementSummary.length} direct debts into ${settlementSummary.length} payment${settlementSummary.length === 1 ? '' : 's'} above (circular/indirect debt resolved).`
+                    : '.'}
+                </p>
+                <div className="space-y-1.5">
+                  {rawSettlementSummary.map((item: any, idx: number) => (
+                    <div key={idx} className="flex items-center gap-2 text-sm">
+                      <span className="font-medium text-gray-700 dark:text-gray-200">{item.user1}</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                      <span className="font-medium text-gray-700 dark:text-gray-200">{item.user2}</span>
+                      <span className="text-gray-400 dark:text-gray-500">·</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">₹{Number(item.amount).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {settlementSummary.map((item: any, idx: number) => {
@@ -536,8 +516,8 @@ export const EventDetail = () => {
                   <div
                     key={idx}
                     className={`flex flex-col sm:flex-row sm:items-center gap-4 px-6 py-4 transition ${
-                      isDebtor   ? 'bg-red-50/60   dark:bg-red-950/10' :
-                      isCreditor ? 'bg-green-50/60 dark:bg-green-950/10' : ''
+                      isDebtor   ? 'bg-gray-800/60 dark:bg-gray-800/40' :
+                      isCreditor ? 'bg-primary-50/60 dark:bg-primary-950/20' : ''
                     }`}
                   >
                     {/* Direction label */}
@@ -545,20 +525,20 @@ export const EventDetail = () => {
                       <div className="flex flex-col items-start gap-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            isDebtor ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            isDebtor ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                           }`}>
                             {item.user1}{isDebtor ? ' (You)' : ''}
                           </span>
                           <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            isCreditor ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                            isCreditor ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                           }`}>
                             {item.user2}{isCreditor ? ' (You)' : ''}
                           </span>
                         </div>
                         <p className={`text-xs mt-0.5 ${
-                          isDebtor   ? 'text-red-600 dark:text-red-400' :
-                          isCreditor ? 'text-green-600 dark:text-green-400' :
+                          isDebtor   ? 'text-gray-500 dark:text-gray-400' :
+                          isCreditor ? 'text-primary-600 dark:text-primary-400' :
                                        'text-gray-500 dark:text-gray-400'
                         }`}>
                           {isDebtor   && `You owe ${item.user2} — this is the net after offsetting mutual payments`}
@@ -568,7 +548,7 @@ export const EventDetail = () => {
                       </div>
                     </div>
 
-                    {/* Amount + Settle button */}
+                    {/* Amount */}
                     <div className="flex items-center gap-3 flex-shrink-0">
                       <div className="text-right">
                         <p className="text-lg font-bold text-primary-600 dark:text-primary-400">
@@ -576,26 +556,23 @@ export const EventDetail = () => {
                         </p>
                         <p className="text-xs text-gray-400">net amount</p>
                       </div>
-                      {isInvolved ? (
-                        <button
-                          id={`settle-btn-${idx}`}
-                          onClick={() => initiateSettle(item, !!isDebtor)}
-                          className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-sm ${
-                            isDebtor
-                              ? 'bg-red-600 hover:bg-red-700 active:bg-red-800 text-white'
-                              : 'bg-green-600 hover:bg-green-700 active:bg-green-800 text-white'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          {isDebtor ? "Settle" : 'Confirm Received'}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-400 dark:text-gray-500 italic">(not involved)</span>
+                      {isInvolved && (
+                        <span className={`text-xs font-semibold ${isDebtor ? 'text-gray-500 dark:text-gray-400' : 'text-primary-600 dark:text-primary-400'}`}>
+                          {isDebtor ? 'You owe' : "You're owed"}
+                        </span>
                       )}
                     </div>
                   </div>
                 );
               })}
+            </div>
+            <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 text-right">
+              <button
+                onClick={() => navigate(`/groups/${event?.groupId}/settlements`)}
+                className="text-sm font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+              >
+                Manage Settlements →
+              </button>
             </div>
           </div>
         )}
@@ -668,83 +645,6 @@ export const EventDetail = () => {
               >
                 Cancel
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Settle Confirmation Modal */}
-      {showSettleModal && pendingSettle && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden border border-gray-150 dark:border-gray-700 transform transition-all scale-100">
-            {/* Header */}
-            <div className={`px-6 py-4 text-white flex flex-col ${
-              pendingSettle.isCurrentUserDebtor 
-                ? 'bg-gradient-to-r from-red-600 to-rose-600' 
-                : 'bg-gradient-to-r from-green-600 to-emerald-600'
-            }`}>
-              <h3 className="font-bold text-lg flex items-center gap-2">
-                {pendingSettle.isCurrentUserDebtor ? '💸 Confirm Payment Settlement' : '✅ Confirm Receipt'}
-              </h3>
-              <p className="text-white/80 text-xs mt-0.5">
-                {pendingSettle.isCurrentUserDebtor
-                  ? 'Confirm that you have paid this net balance'
-                  : 'Confirm that you have received this net balance'}
-              </p>
-            </div>
-
-            {/* Settlement Details */}
-            <div className="px-6 py-5">
-              {/* Net Amount Card */}
-              <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-4 text-center">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Net amount to settle</p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white">
-                  ₹{pendingSettle.amount.toFixed(2)}
-                </p>
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <span className="px-2.5 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 rounded-full text-xs font-bold">
-                    {pendingSettle.debtorName}
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-gray-400" />
-                  <span className="px-2.5 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full text-xs font-bold">
-                    {pendingSettle.creditorName}
-                  </span>
-                </div>
-              </div>
-
-              {/* Explanation */}
-              <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300 mb-5">
-                <p className="font-semibold mb-1">ℹ️ How this works</p>
-                <p>This net amount is calculated after offsetting any mutual payments between {pendingSettle.debtorName} and {pendingSettle.creditorName}.</p>
-                <p className="mt-1">Confirming will mark <b>all payment records</b> between these two users as <b>settled/confirmed</b>. Only ₹{pendingSettle.amount.toFixed(2)} needs to actually change hands.</p>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setShowSettleModal(false); setPendingSettle(null); }}
-                  disabled={isSettling}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-semibold transition"
-                >
-                  <XCircle className="w-4 h-4" /> Cancel
-                </button>
-                <button
-                  id="confirm-settle-btn"
-                  onClick={confirmSettle}
-                  disabled={isSettling}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold text-white transition ${
-                    pendingSettle.isCurrentUserDebtor
-                      ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
-                      : 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
-                  }`}
-                >
-                  {isSettling ? (
-                    <><span className="animate-spin">⏳</span> Processing...</>
-                  ) : (
-                    <><CheckCircle2 className="w-4 h-4" /> {pendingSettle.isCurrentUserDebtor ? 'Confirm Payment' : 'Confirm Receipt'}</>
-                  )}
-                </button>
-              </div>
             </div>
           </div>
         </div>

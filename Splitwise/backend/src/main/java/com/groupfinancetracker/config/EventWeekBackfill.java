@@ -26,7 +26,7 @@ public class EventWeekBackfill {
             for (Event e : events) {
                 if (e.getWeekNumber() != null && e.getYear() != null)
                     continue;
-                LocalDate date = e.getStartDate();
+                LocalDate date = e.getEventDate();
                 if (date == null && e.getCreatedAt() != null) {
                     date = e.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDate();
                 }

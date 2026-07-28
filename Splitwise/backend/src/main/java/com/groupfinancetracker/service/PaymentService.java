@@ -102,10 +102,13 @@ public class PaymentService {
     }
 
     /**
-     * Records a settlement (repayment) of {@code amount} from debtor to creditor in the ledger.
-     * Scoped to an event when {@code eventId} is provided, otherwise to the group.
+     * Marks a simplified/pairwise settlement of {@code amount} from debtor to creditor as paid.
+     * Scoped to an event when {@code eventId} is provided, otherwise to the group. Mirrors
+     * {@link #markPaid}: only the debtor can mark it, and it does not affect balances until the
+     * creditor confirms it via {@link #confirmPairwiseSettlement}.
      */
-    public void settlePairwise(Long groupId, Long eventId, Long fromUserId, Long toUserId, BigDecimal amount, Long actorId) {
+    public DtoModels.SettlementLedgerEntry settlePairwise(Long groupId, Long eventId, Long fromUserId,
+            Long toUserId, BigDecimal amount, String transactionRef, String proofUrl, Long actorId) {
         if (amount == null || amount.signum() <= 0) {
             throw new IllegalArgumentException("Settlement amount must be positive");
         }
@@ -119,12 +122,12 @@ public class PaymentService {
             group = groupRepository.findById(groupId)
                     .orElseThrow(() -> new NotFoundException("Group not found: " + groupId));
         }
-        // Authorization: the actor must be a member of the group AND one of the two parties.
+        // Authorization: only the debtor can mark a settlement as paid (matches markPaid on shares).
         if (!isMember(group, actorId)) {
             throw new ForbiddenActionException("Only a group member can record settlements");
         }
-        if (!actorId.equals(fromUserId) && !actorId.equals(toUserId)) {
-            throw new ForbiddenActionException("You can only settle a debt you are part of");
+        if (!actorId.equals(fromUserId)) {
+            throw new ForbiddenActionException("Only the debtor can mark a settlement as paid");
         }
         if (!isMember(group, fromUserId) || !isMember(group, toUserId)) {
             throw new IllegalArgumentException("Both parties must be members of the group");
@@ -133,7 +136,7 @@ public class PaymentService {
                 .orElseThrow(() -> new NotFoundException("User not found: " + fromUserId));
         User to = userRepository.findById(toUserId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + toUserId));
-        settlementRepository.save(Settlement.builder()
+        Settlement s = settlementRepository.save(Settlement.builder()
                 .group(group)
                 .event(event)
                 .fromUser(from)
@@ -142,6 +145,94 @@ public class PaymentService {
                 .createdAt(Instant.now())
                 .createdBy(from)
                 .note("Pairwise settlement")
+                .status(PaymentState.MARKED_AS_PAID)
+                .markedAt(Instant.now())
+                .transactionRef(transactionRef)
+                .proofUrl(proofUrl)
                 .build());
+        return toLedgerEntry(s);
+    }
+
+    /** Only the creditor can confirm; only then does the settlement count toward balances. */
+    public DtoModels.SettlementLedgerEntry confirmPairwiseSettlement(Long settlementId, Long actorId) {
+        Settlement s = settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new NotFoundException("Settlement not found: " + settlementId));
+        if (!actorId.equals(s.getToUser().getId())) {
+            throw new ForbiddenActionException("Only the creditor can confirm a settlement");
+        }
+        if (s.getStatus() == PaymentState.CONFIRMED) {
+            return toLedgerEntry(s);
+        }
+        if (s.getStatus() != PaymentState.MARKED_AS_PAID) {
+            throw new IllegalStateException("Settlement can only be confirmed after being marked as paid");
+        }
+        s.setStatus(PaymentState.CONFIRMED);
+        s.setConfirmedAt(Instant.now());
+        settlementRepository.save(s);
+        cascadeConfirmDirectShares(s.getGroup().getId(), s.getFromUser(), s.getToUser());
+        return toLedgerEntry(s);
+    }
+
+    /**
+     * After a pairwise settlement is confirmed, mark the expense shares it resolves as CONFIRMED
+     * too -- so the itemized expense list reflects the payment, not just the group's aggregate net.
+     * Two cases, both safe to attribute:
+     *   1. Direct pair: this settlement fully clears what the two parties owe each other directly
+     *      (their raw balance, ignoring redirection, is now zero) -- covers the common case of one
+     *      net payment closing out several expenses between the same two people.
+     *   2. Whole group: the settlement was the last piece needed to fully balance everyone in the
+     *      group (the simplified payment list is now empty) -- covers circular/indirect debts (e.g.
+     *      A owes B, B owes C, C owes A), where cash was redirected through a third party so no
+     *      single pair's raw balance ever reaches zero, but the group as a whole is provably settled.
+     */
+    private void cascadeConfirmDirectShares(Long groupId, User a, User b) {
+        var allShares = shareRepository.findBySubEvent_Event_Group_Id(groupId);
+        var effectiveSettlements = settlementRepository.findByGroup_Id(groupId).stream()
+                .filter(st -> st.getStatus() == null || st.getStatus() == PaymentState.CONFIRMED)
+                .toList();
+
+        var debtRows = allShares.stream()
+                .map(sh -> new com.groupfinancetracker.settlement.SettlementCalculator.DebtRow(
+                        sh.getUser().getId(), sh.getSubEvent().getPayer().getId(), sh.getAmount()))
+                .toList();
+        var settlementRows = effectiveSettlements.stream()
+                .map(st -> new com.groupfinancetracker.settlement.SettlementCalculator.SettlementRow(
+                        st.getFromUser().getId(), st.getToUser().getId(), st.getAmount()))
+                .toList();
+
+        var rawEdges = com.groupfinancetracker.settlement.SettlementCalculator.rawPairwise(debtRows, settlementRows);
+        boolean pairStillOwesDirectly = rawEdges.stream().anyMatch(e ->
+                (e.fromId().equals(a.getId()) && e.toId().equals(b.getId())) ||
+                (e.fromId().equals(b.getId()) && e.toId().equals(a.getId())));
+
+        var net = com.groupfinancetracker.settlement.SettlementCalculator.netBalances(debtRows, settlementRows);
+        boolean groupFullySettled = com.groupfinancetracker.settlement.SettlementCalculator.simplify(net).isEmpty();
+
+        Instant now = Instant.now();
+        for (Share sh : allShares) {
+            PaymentStatus ps = sh.getPaymentStatus();
+            if (ps == null || ps.getStatus() == PaymentState.CONFIRMED) continue;
+
+            Long debtorId = sh.getUser().getId();
+            Long creditorId = sh.getSubEvent().getPayer().getId();
+            boolean isMutualPairOfThisSettlement = (debtorId.equals(a.getId()) && creditorId.equals(b.getId()))
+                    || (debtorId.equals(b.getId()) && creditorId.equals(a.getId()));
+
+            if (!groupFullySettled && !(isMutualPairOfThisSettlement && !pairStillOwesDirectly)) continue;
+
+            ps.setStatus(PaymentState.CONFIRMED);
+            ps.setConfirmedAt(now);
+            paymentStatusRepository.save(ps);
+        }
+    }
+
+    private DtoModels.SettlementLedgerEntry toLedgerEntry(Settlement s) {
+        String status = s.getStatus() == null ? "CONFIRMED" : s.getStatus().name();
+        return new DtoModels.SettlementLedgerEntry(
+                s.getId(), s.getGroup().getId(),
+                s.getFromUser().getId(), s.getFromUser().getName(),
+                s.getToUser().getId(), s.getToUser().getName(),
+                s.getAmount(), status, s.getMarkedAt(), s.getConfirmedAt(), s.getCreatedAt(),
+                s.getTransactionRef(), s.getProofUrl(), s.getNote());
     }
 }

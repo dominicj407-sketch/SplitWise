@@ -124,8 +124,14 @@ public class GroupService {
 
     private DtoModels.GroupResponse toDto(Group g) {
         Set<Long> memberIds = g.getMembers().stream().map(User::getId).collect(java.util.stream.Collectors.toSet());
+        // Embedding full member profiles here saves every caller (event/expense pages, the
+        // create-expense modal) a separate GET /users call just to resolve names for memberIds.
+        List<DtoModels.UserResponse> members = g.getMembers().stream()
+                .map(u -> new DtoModels.UserResponse(u.getId(), u.getName(), u.getEmail(), u.getUpiId(), u.getCreatedAt()))
+                .sorted(java.util.Comparator.comparing(DtoModels.UserResponse::name))
+                .toList();
         return new DtoModels.GroupResponse(g.getId(), g.getName(), g.getCreator().getId(), memberIds, g.getCreatedAt(),
-                g.getGroupCode(), g.getBudgetLimit());
+                g.getGroupCode(), g.getBudgetLimit(), members);
     }
 
     private String generateUniqueCode() {

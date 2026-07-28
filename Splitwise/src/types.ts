@@ -25,8 +25,7 @@ export interface Event {
   groupId: number | string;
   creatorId: number | string;
   createdAt: string;
-  startDate: string;
-  endDate: string;
+  eventDate: string;
   weekNumber?: number;
   year?: number;
   totalAmount?: number;
@@ -71,6 +70,6 @@ export interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
   googleLogin: (credential: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isLoading: boolean;
 }

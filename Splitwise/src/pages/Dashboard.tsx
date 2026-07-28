@@ -20,10 +20,11 @@ export const Dashboard = () => {
 
   const fetchGroups = async () => {
     try {
-      const response = await groupAPI.getAll();
+      const [response, reqRes] = await Promise.all([
+        groupAPI.getAll(),
+        groupAPI.listPendingCreatorRequests(),
+      ]);
       setGroups(response.data);
-      
-      const reqRes = await groupAPI.listPendingCreatorRequests();
       setPendingRequests(reqRes.data || []);
     } catch (error) {
       showToast('Failed to load groups', 'error');
@@ -199,7 +200,7 @@ export const Dashboard = () => {
               <div
                 key={group.id}
                 onClick={() => navigate(`/groups/${group.id}`)}
-                className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md hover:shadow-lg transition-all cursor-pointer border border-transparent hover:border-primary-600 hover:bg-green-50"
+                className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-md hover:shadow-lg transition-all cursor-pointer border border-transparent hover:border-primary-600 hover:bg-primary-50"
               >
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
                   {group.name}

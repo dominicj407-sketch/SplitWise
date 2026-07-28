@@ -1,16 +1,26 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { Login } from './pages/Login';
-import { Signup } from './pages/Signup';
-import { ForgotPassword } from './pages/ForgotPassword';
-import { Dashboard } from './pages/Dashboard';
-import { GroupDetail } from './pages/GroupDetail';
-import { EventDetail } from './pages/EventDetail';
-import { Profile } from './pages/Profile';
-import { JoinGroup } from './pages/JoinGroup';
+
+// Each page loads only when its route is visited, instead of one bundle upfront for the whole app.
+const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
+const Signup = lazy(() => import('./pages/Signup').then(m => ({ default: m.Signup })));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword').then(m => ({ default: m.ForgotPassword })));
+const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const GroupDetail = lazy(() => import('./pages/GroupDetail').then(m => ({ default: m.GroupDetail })));
+const GroupSettlements = lazy(() => import('./pages/GroupSettlements').then(m => ({ default: m.GroupSettlements })));
+const EventDetail = lazy(() => import('./pages/EventDetail').then(m => ({ default: m.EventDetail })));
+const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
+const JoinGroup = lazy(() => import('./pages/JoinGroup').then(m => ({ default: m.JoinGroup })));
+
+const RouteLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="w-10 h-10 border-4 border-primary-600/30 border-t-primary-500 rounded-full animate-spin" />
+  </div>
+);
 
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
@@ -22,6 +32,7 @@ function App() {
       <BrowserRouter>
         <ThemeProvider>
           <AuthProvider>
+            <Suspense fallback={<RouteLoader />}>
             <Routes>
               {/* Public routes */}
               <Route path="/login" element={<Login />} />
@@ -42,6 +53,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <GroupDetail />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/groups/:groupId/settlements"
+                element={
+                  <ProtectedRoute>
+                    <GroupSettlements />
                   </ProtectedRoute>
                 }
               />
@@ -71,6 +90,7 @@ function App() {
               />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
+            </Suspense>
           </AuthProvider>
         </ThemeProvider>
       </BrowserRouter>

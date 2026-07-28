@@ -60,4 +60,41 @@ public final class SettlementCalculator {
         BigDecimal balance;
         Node(Long id, BigDecimal balance) { this.id = id; this.balance = balance; }
     }
+
+    /**
+     * Net balance between every pair of users, considering only debts/settlements directly
+     * between the two of them -- unlike {@link #simplify}, this does not redirect a debt
+     * through a third party. Useful for showing "here's what this simplified payment is
+     * actually made of" when a net edge is the product of a circular/indirect debt chain
+     * (e.g. A owes B, B owes C, C owes A collapsing into a single payment).
+     */
+    public static List<Edge> rawPairwise(List<DebtRow> debts, List<SettlementRow> settlements) {
+        Map<Long, Map<Long, BigDecimal>> owed = new HashMap<>(); // owed[creditor][debtor] = amount debtor owes creditor
+        for (DebtRow d : debts) {
+            if (Objects.equals(d.debtorId(), d.payerId())) continue;
+            owed.computeIfAbsent(d.payerId(), k -> new HashMap<>())
+                    .merge(d.debtorId(), d.amount(), BigDecimal::add);
+        }
+        for (SettlementRow s : settlements) {
+            // fromUser paid toUser directly, discharging what fromUser owed toUser.
+            owed.computeIfAbsent(s.toUserId(), k -> new HashMap<>())
+                    .merge(s.fromUserId(), s.amount().negate(), BigDecimal::add);
+        }
+        Set<Long> ids = new TreeSet<>();
+        owed.forEach((creditor, debtors) -> { ids.add(creditor); ids.addAll(debtors.keySet()); });
+        List<Long> idList = new ArrayList<>(ids);
+        List<Edge> result = new ArrayList<>();
+        for (int i = 0; i < idList.size(); i++) {
+            for (int j = i + 1; j < idList.size(); j++) {
+                Long a = idList.get(i), b = idList.get(j);
+                BigDecimal bOwesA = owed.getOrDefault(a, Map.of()).getOrDefault(b, BigDecimal.ZERO);
+                BigDecimal aOwesB = owed.getOrDefault(b, Map.of()).getOrDefault(a, BigDecimal.ZERO);
+                BigDecimal net = bOwesA.subtract(aOwesB); // positive => b owes a
+                if (net.compareTo(EPSILON) > 0) result.add(new Edge(b, a, net));
+                else if (net.negate().compareTo(EPSILON) > 0) result.add(new Edge(a, b, net.negate()));
+            }
+        }
+        result.sort(Comparator.comparing((Edge e) -> e.fromId()).thenComparing(Edge::toId));
+        return result;
+    }
 }

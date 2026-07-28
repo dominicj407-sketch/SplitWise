@@ -16,12 +16,26 @@ import java.util.Map;
 public class PaymentController {
     private final PaymentService paymentService;
 
+    /** Accepts a JSON number OR a numeric string for a Map<String,Object> body field -- callers
+     * (e.g. a value sourced from a URL route param) don't always send a real JSON number. */
+    private static Long toLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.longValue();
+        if (v instanceof String s && !s.isBlank()) return Long.valueOf(s.trim());
+        throw new IllegalArgumentException("Expected a number, got: " + v);
+    }
+
+    private static java.math.BigDecimal toBigDecimal(Object v) {
+        if (v == null) return null;
+        if (v instanceof String s && s.isBlank()) return null;
+        return new java.math.BigDecimal(v.toString());
+    }
+
     @PostMapping("/mark-paid")
     public ShareResponse markPaid(@RequestBody Map<String, Object> body) {
         Object details = SecurityContextHolder.getContext().getAuthentication() != null ? SecurityContextHolder.getContext().getAuthentication().getDetails() : null;
         Long actorId = details instanceof Long ? (Long) details : null;
-        Number shareIdNum = (Number) body.get("shareId");
-        Long shareId = shareIdNum != null ? shareIdNum.longValue() : null;
+        Long shareId = toLong(body.get("shareId"));
         String transactionRef = (String) body.get("transactionRef");
         String proofUrl = (String) body.get("proofUrl");
         return paymentService.markPaid(new MarkPaymentRequest(shareId, actorId, transactionRef, proofUrl));
@@ -36,24 +50,29 @@ public class PaymentController {
     }
 
     @PostMapping("/settle-pairwise")
-    public void settlePairwise(@RequestBody Map<String, Object> body) {
-        Number groupVal = (Number) body.get("groupId");
-        Number eventVal = (Number) body.get("eventId");
-        Number debtorVal = (Number) body.get("debtorId");
-        Number creditorVal = (Number) body.get("creditorId");
-
-        Number amountVal = (Number) body.get("amount");
-
-        Long groupId = groupVal != null ? groupVal.longValue() : null;
-        Long eventId = eventVal != null ? eventVal.longValue() : null;
-        Long debtorId = debtorVal != null ? debtorVal.longValue() : null;
-        Long creditorId = creditorVal != null ? creditorVal.longValue() : null;
-        java.math.BigDecimal amount = amountVal != null ? new java.math.BigDecimal(amountVal.toString()) : null;
+    public com.groupfinancetracker.dto.DtoModels.SettlementLedgerEntry settlePairwise(@RequestBody Map<String, Object> body) {
+        Long groupId = toLong(body.get("groupId"));
+        Long eventId = toLong(body.get("eventId"));
+        Long debtorId = toLong(body.get("debtorId"));
+        Long creditorId = toLong(body.get("creditorId"));
+        java.math.BigDecimal amount = toBigDecimal(body.get("amount"));
+        String transactionRef = (String) body.get("transactionRef");
+        String proofUrl = (String) body.get("proofUrl");
 
         Object details = SecurityContextHolder.getContext().getAuthentication() != null
                 ? SecurityContextHolder.getContext().getAuthentication().getDetails()
                 : null;
         Long actorId = details instanceof Long ? (Long) details : null;
-        paymentService.settlePairwise(groupId, eventId, debtorId, creditorId, amount, actorId);
+        return paymentService.settlePairwise(groupId, eventId, debtorId, creditorId, amount, transactionRef, proofUrl, actorId);
+    }
+
+    @PostMapping("/confirm-pairwise")
+    public com.groupfinancetracker.dto.DtoModels.SettlementLedgerEntry confirmPairwise(@RequestBody Map<String, Object> body) {
+        Long settlementId = toLong(body.get("settlementId"));
+        Object details = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getDetails()
+                : null;
+        Long actorId = details instanceof Long ? (Long) details : null;
+        return paymentService.confirmPairwiseSettlement(settlementId, actorId);
     }
 }

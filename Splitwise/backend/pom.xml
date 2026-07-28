@@ -51,6 +51,14 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Auto-loads backend/.env into the environment so DB_URL/DB_USERNAME/DB_PASSWORD
+             resolve without exporting them manually or committing secrets to application.yml -->
+        <dependency>
+            <groupId>me.paulschwarz</groupId>
+            <artifactId>spring-dotenv</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

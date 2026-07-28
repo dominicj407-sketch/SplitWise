@@ -34,20 +34,14 @@ public class EventService {
                 .orElseThrow(() -> new NotFoundException("Group not found: " + req.groupId()));
         User creator = userRepository.findById(req.creatorId())
                 .orElseThrow(() -> new NotFoundException("Creator not found: " + req.creatorId()));
-        LocalDate start = req.startDate();
-        LocalDate end = req.endDate();
-        if (start == null)
-            start = LocalDate.now();
-        if (end == null)
-            end = start;
-        if (end.isBefore(start))
-            throw new IllegalArgumentException("End date cannot be before start date");
+        LocalDate today = LocalDate.now();
+        LocalDate eventDate = req.eventDate() != null ? req.eventDate() : today;
 
         // Week index: weeks elapsed since the earliest expense date (1-based), matching
-        // SubEventService.computeWeekIndex. All history is retained; no auto-deletion.
-        int weekIndex = computeWeekIndex(start);
+        // SubEventService.computeWeekIndex.
+        int weekIndex = computeWeekIndex(eventDate);
 
-        Event e = Event.builder().name(req.name()).group(group).creator(creator).startDate(start).endDate(end).build();
+        Event e = Event.builder().name(req.name()).group(group).creator(creator).eventDate(eventDate).build();
         e.setWeekNumber(weekIndex);
         e.setYear(1);
         e = eventRepository.save(e);
@@ -80,7 +74,7 @@ public class EventService {
         if (fromEvents != null)
             fromEvents.forEach(ev -> eventIds.add(ev.getId()));
         return eventRepository.findAllById(eventIds).stream()
-                .sorted(Comparator.comparing(Event::getStartDate, Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(Event::getEventDate, Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(this::toDto)
                 .toList();
     }
@@ -132,8 +126,7 @@ public class EventService {
                 e.getGroup().getId(),
                 e.getCreator().getId(),
                 e.getCreatedAt(),
-                e.getStartDate(),
-                e.getEndDate(),
+                e.getEventDate(),
                 e.getWeekNumber(),
                 e.getYear(),
                 totalAmount != null ? totalAmount : java.math.BigDecimal.ZERO);

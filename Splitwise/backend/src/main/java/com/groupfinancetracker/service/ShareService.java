@@ -1,11 +1,13 @@
 package com.groupfinancetracker.service;
 
 import com.groupfinancetracker.dto.DtoModels;
+import com.groupfinancetracker.entity.Event;
 import com.groupfinancetracker.entity.Group;
 import com.groupfinancetracker.entity.Share;
 import com.groupfinancetracker.entity.SubEvent;
 import com.groupfinancetracker.exception.ForbiddenActionException;
 import com.groupfinancetracker.exception.NotFoundException;
+import com.groupfinancetracker.repository.EventRepository;
 import com.groupfinancetracker.repository.ShareRepository;
 import com.groupfinancetracker.repository.SubEventRepository;
 import jakarta.transaction.Transactional;
@@ -20,12 +22,21 @@ import java.util.List;
 public class ShareService {
     private final ShareRepository shareRepository;
     private final SubEventRepository subEventRepository;
+    private final EventRepository eventRepository;
 
     public List<DtoModels.ShareResponse> listBySubEvent(Long subEventId, Long actorId) {
         SubEvent se = subEventRepository.findById(subEventId)
                 .orElseThrow(() -> new NotFoundException("SubEvent not found: " + subEventId));
-        requireMember(se, actorId);
+        requireMember(se.getEvent().getGroup(), actorId);
         return shareRepository.findBySubEvent_Id(subEventId).stream().map(this::toDto).toList();
+    }
+
+    /** All shares for every expense in an event, in one query -- avoids an N+1 fetch-per-expense round trip. */
+    public List<DtoModels.ShareResponse> listByEvent(Long eventId, Long actorId) {
+        Event e = eventRepository.findById(eventId)
+                .orElseThrow(() -> new NotFoundException("Event not found: " + eventId));
+        requireMember(e.getGroup(), actorId);
+        return shareRepository.findBySubEvent_Event_Id(eventId).stream().map(this::toDto).toList();
     }
 
     public List<DtoModels.ShareResponse> listByUser(Long userId) {
@@ -34,12 +45,11 @@ public class ShareService {
 
     public DtoModels.ShareResponse get(Long id, Long actorId) {
         Share s = shareRepository.findById(id).orElseThrow(() -> new NotFoundException("Share not found: " + id));
-        requireMember(s.getSubEvent(), actorId);
+        requireMember(s.getSubEvent().getEvent().getGroup(), actorId);
         return toDto(s);
     }
 
-    private void requireMember(SubEvent se, Long actorId) {
-        Group g = se.getEvent().getGroup();
+    private void requireMember(Group g, Long actorId) {
         boolean isMember = actorId != null && (g.getCreator().getId().equals(actorId)
                 || g.getMembers().stream().anyMatch(u -> u.getId().equals(actorId)));
         if (!isMember) {

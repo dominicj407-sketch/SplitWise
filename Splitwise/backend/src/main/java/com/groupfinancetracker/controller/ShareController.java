@@ -24,6 +24,10 @@ public class ShareController {
     @GetMapping("/api/subevents/{subEventId}/shares")
     public List<ShareResponse> listBySubEvent(@PathVariable Long subEventId) { return shareService.listBySubEvent(subEventId, currentUserId()); }
 
+    /** All shares for every expense in an event, in one call -- avoids an N+1 fetch-per-expense round trip. */
+    @GetMapping("/api/events/{eventId}/shares")
+    public List<ShareResponse> listByEvent(@PathVariable Long eventId) { return shareService.listByEvent(eventId, currentUserId()); }
+
     @GetMapping("/api/users/{userId}/shares")
     public List<ShareResponse> listByUser(@PathVariable Long userId) {
         Long actorId = currentUserId();

@@ -1,15 +1,12 @@
 server:
-  port: 8080
+  # Render (and most PaaS hosts) assign the listen port dynamically via $PORT -- binding to a
+  # fixed 8080 would make the deployed instance unreachable.
+  port: ${PORT:8080}
 spring:
   application:
     name: group-finance-tracker
   profiles:
     active: postgres
-  datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/group_finance}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:2006}
-    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
@@ -40,6 +37,30 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  jwt:
+    # Externalized the same way DB credentials are (backend/.env, gitignored, loaded by
+    # spring-dotenv) -- the previous hardcoded default was committed to a public repo, so anyone
+    # could forge auth tokens with it. The literal default below only applies if JWT_SECRET is
+    # unset; it must be overridden with a real random value in .env for any real use.
+    secret: ${JWT_SECRET:dev-secret-change-me}
+    ttlSeconds: ${JWT_TTL_SECONDS:900}
+    refreshTtlSeconds: ${JWT_REFRESH_TTL_SECONDS:2592000}
+  cookie:
+    # Refresh-token cookie's Secure flag -- requires HTTPS, so left off for local http dev and
+    # must be set true (COOKIE_SECURE=true) in any real deployment.
+    secure: ${COOKIE_SECURE:false}
+    # Lax works for local dev (frontend/backend are different ports on the same "site",
+    # localhost) but a real deployment puts the frontend (Vercel) and backend (Render) on
+    # completely different domains -- a genuine cross-site request. Lax cookies are not sent on
+    # cross-site XHR/fetch, only top-level navigation, so the refresh flow would silently stop
+    # working. Set COOKIE_SAME_SITE=None in production (requires COOKIE_SECURE=true, since
+    # SameSite=None without Secure is rejected outright by modern browsers).
+    same-site: ${COOKIE_SAME_SITE:Lax}
   google:
     client-id: ${GOOGLE_CLIENT_ID:1031620332525-ldlsnod444okmeq5clj6fscs0c8a4eh5.apps.googleusercontent.com}
-  frontend-url: http://localhost:5173
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  # Comma-separated list of origins allowed to call the API with credentials (cookies). Must be
+  # exact scheme+host+port, no wildcards, no trailing slash -- add the deployed Vercel URL here
+  # via CORS_ALLOWED_ORIGINS once it's known.
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:9000,http://localhost:5173,http://localhost:5174}

@@ -21,6 +21,16 @@ public class SettlementController {
     @GetMapping("/group/{groupId}/pairwise")
     public GroupPairwise pairwise(@PathVariable Long groupId) { return settlementService.groupPairwise(groupId); }
 
+    @GetMapping("/group/{groupId}/pending")
+    public java.util.List<com.groupfinancetracker.dto.DtoModels.SettlementLedgerEntry> pending(@PathVariable Long groupId) {
+        return settlementService.pendingSettlements(groupId);
+    }
+
+    @GetMapping("/group/{groupId}/ledger")
+    public com.groupfinancetracker.dto.DtoModels.GroupLedgerResponse ledger(@PathVariable Long groupId) {
+        return settlementService.groupLedger(groupId);
+    }
+
     @GetMapping("/group/{groupId}/by-week")
     public WeeklySettlementResponse settlementsByWeek(@PathVariable Long groupId, @RequestParam("week") Integer weekNumber, @RequestParam("year") Integer year) {
         Object details = SecurityContextHolder.getContext().getAuthentication() != null ? SecurityContextHolder.getContext().getAuthentication().getDetails() : null;

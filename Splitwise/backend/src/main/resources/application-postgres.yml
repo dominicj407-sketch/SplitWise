@@ -1,9 +1,17 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/group_finance
-    username: postgres
-    password: 2006
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 30000
+      initialization-fail-timeout: -1
+      keepalive-time: 30000
+      max-lifetime: 240000
+      idle-timeout: 120000
   jpa:
     hibernate:
       ddl-auto: update

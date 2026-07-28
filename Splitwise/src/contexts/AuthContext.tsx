@@ -59,7 +59,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(newUser as User);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      // Revokes the refresh-token cookie server-side so it can't silently mint new access
+      // tokens after this point. Best-effort: local state is cleared either way.
+      await authAPI.logout();
+    } catch {
+      // Already logged out server-side, network hiccup, etc. -- not worth blocking on.
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);

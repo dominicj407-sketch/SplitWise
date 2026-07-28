@@ -35,7 +35,7 @@ public class DataInitializer {
                                         Set.of(bob.id(), carol.id()), null));
 
                         EventResponse evt = eventService.create(new CreateEventRequest(grp.id(), "Goa Trip", alice.id(),
-                                        LocalDate.now(), LocalDate.now().plusDays(5)));
+                                        LocalDate.now()));
 
                         SubEventResponse dinner = subEventService.create(new CreateSubEventRequest(
                                         evt.id(),
