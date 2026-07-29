@@ -24,7 +24,7 @@ const RouteLoader = () => (
 
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-  '1031620332525-ldlsnod444okmeq5clj6fscs0c8a4eh5.apps.googleusercontent.com';
+  '387716823551-big6f085conhtcch84apshmsuboq2t4k.apps.googleusercontent.com';
 
 function App() {
   return (
