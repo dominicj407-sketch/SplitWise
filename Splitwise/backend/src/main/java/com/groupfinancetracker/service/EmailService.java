@@ -37,8 +37,8 @@ public class EmailService {
             helper.setText(buildWelcomeHtml(name, masterPassword), true);
             mailSender.send(msg);
             log.info("[Email] Welcome+master-password sent to {}", toEmail);
-        } catch (MessagingException e) {
-            log.error("[Email] Failed to send welcome email to {}: {}", toEmail, e.getMessage());
+        } catch (MessagingException | org.springframework.mail.MailException e) {
+            log.error("[Email] Failed to send welcome email to {}: {}", toEmail, e.getMessage(), e);
         }
     }
 
@@ -55,8 +55,8 @@ public class EmailService {
             helper.setText(buildPasswordChangedHtml(name), true);
             mailSender.send(msg);
             log.info("[Email] Password-changed notification sent to {}", toEmail);
-        } catch (MessagingException e) {
-            log.error("[Email] Failed to send password-changed email to {}: {}", toEmail, e.getMessage());
+        } catch (MessagingException | org.springframework.mail.MailException e) {
+            log.error("[Email] Failed to send password-changed email to {}: {}", toEmail, e.getMessage(), e);
         }
     }
 
