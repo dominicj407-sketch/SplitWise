@@ -1,24 +1,40 @@
 package com.groupfinancetracker.service;
 
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 
+/**
+ * Sends via Resend's HTTPS REST API rather than raw SMTP -- Render (like most PaaS hosts) blocks
+ * outbound SMTP ports entirely to prevent abuse, so a normal JavaMailSender/SMTP connection times
+ * out from there no matter which server or credentials it's pointed at. A plain HTTPS POST isn't
+ * subject to that block.
+ */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private static final URI RESEND_ENDPOINT = URI.create("https://api.resend.com/emails");
 
-    @Value("${spring.mail.username}")
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${app.mail.resend-api-key}")
+    private String resendApiKey;
+
+    @Value("${app.mail.from}")
     private String fromEmail;
 
     @Value("${app.frontend-url:http://localhost:5173}")
@@ -28,35 +44,40 @@ public class EmailService {
 
     @Async
     public void sendWelcomeWithMasterPassword(String name, String toEmail, String masterPassword) {
-        try {
-            MimeMessage msg = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
-            helper.setFrom(fromEmail);
-            helper.setTo(toEmail);
-            helper.setSubject("Welcome to SplitWise — Your Master Password 🔑");
-            helper.setText(buildWelcomeHtml(name, masterPassword), true);
-            mailSender.send(msg);
-            log.info("[Email] Welcome+master-password sent to {}", toEmail);
-        } catch (MessagingException | org.springframework.mail.MailException e) {
-            log.error("[Email] Failed to send welcome email to {}: {}", toEmail, e.getMessage(), e);
-        }
+        send(toEmail, "Welcome to SplitWise — Your Master Password 🔑", buildWelcomeHtml(name, masterPassword));
     }
 
     // ─── Password Changed Notification ────────────────────────────────────────
 
     @Async
     public void sendPasswordChangedNotification(String name, String toEmail) {
+        send(toEmail, "Your SplitWise Password Has Been Changed", buildPasswordChangedHtml(name));
+    }
+
+    // ─── Resend HTTPS API call ─────────────────────────────────────────────────
+
+    private void send(String toEmail, String subject, String html) {
         try {
-            MimeMessage msg = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(msg, true, "UTF-8");
-            helper.setFrom(fromEmail);
-            helper.setTo(toEmail);
-            helper.setSubject("Your SplitWise Password Has Been Changed");
-            helper.setText(buildPasswordChangedHtml(name), true);
-            mailSender.send(msg);
-            log.info("[Email] Password-changed notification sent to {}", toEmail);
-        } catch (MessagingException | org.springframework.mail.MailException e) {
-            log.error("[Email] Failed to send password-changed email to {}: {}", toEmail, e.getMessage(), e);
+            String body = objectMapper.writeValueAsString(Map.of(
+                    "from", fromEmail,
+                    "to", List.of(toEmail),
+                    "subject", subject,
+                    "html", html));
+            HttpRequest request = HttpRequest.newBuilder(RESEND_ENDPOINT)
+                    .header("Authorization", "Bearer " + resendApiKey)
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(15))
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 == 2) {
+                log.info("[Email] Sent to {} ({})", toEmail, subject);
+            } else {
+                log.error("[Email] Failed to send to {} ({}): HTTP {} {}", toEmail, subject,
+                        response.statusCode(), response.body());
+            }
+        } catch (Exception e) {
+            log.error("[Email] Failed to send to {} ({}): {}", toEmail, subject, e.getMessage(), e);
         }
     }
 

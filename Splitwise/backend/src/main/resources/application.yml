@@ -20,23 +20,21 @@ spring:
   sql:
     init:
       mode: never
-  mail:
-    host: smtp.gmail.com
-    port: 587
-    username: ${MAIL_USER:dominicj407@gmail.com}
-    password: ${MAIL_PASS:gdms bwxe olto ldyl}
-    properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
-            required: true
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
 app:
+  mail:
+    # Render (and most PaaS hosts) block outbound SMTP ports entirely to prevent abuse -- raw
+    # SMTP to any server, including Gmail, times out from there regardless of correct credentials.
+    # Sending via Resend's HTTPS REST API instead (not their SMTP relay) avoids that block, since
+    # it's a normal outbound HTTPS call. No committed default -- must come from .env / Render env.
+    resend-api-key: ${RESEND_API_KEY:}
+    # Resend's shared sandbox sender, usable without verifying a custom domain -- but Resend then
+    # only accepts sending to the account's own signup email, not arbitrary recipients. Verify a
+    # domain in Resend and point this at an address on it to lift that restriction.
+    from: ${MAIL_FROM:onboarding@resend.dev}
   jwt:
     # Externalized the same way DB credentials are (backend/.env, gitignored, loaded by
     # spring-dotenv) -- the previous hardcoded default was committed to a public repo, so anyone
