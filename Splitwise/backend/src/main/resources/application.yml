@@ -28,13 +28,13 @@ app:
   mail:
     # Render (and most PaaS hosts) block outbound SMTP ports entirely to prevent abuse -- raw
     # SMTP to any server, including Gmail, times out from there regardless of correct credentials.
-    # Sending via Resend's HTTPS REST API instead (not their SMTP relay) avoids that block, since
-    # it's a normal outbound HTTPS call. No committed default -- must come from .env / Render env.
-    resend-api-key: ${RESEND_API_KEY:}
-    # Resend's shared sandbox sender, usable without verifying a custom domain -- but Resend then
-    # only accepts sending to the account's own signup email, not arbitrary recipients. Verify a
-    # domain in Resend and point this at an address on it to lift that restriction.
-    from: ${MAIL_FROM:onboarding@resend.dev}
+    # Sending via Brevo's HTTPS REST API instead avoids that block, since it's a normal outbound
+    # HTTPS call. No committed default -- must come from .env / Render env.
+    brevo-api-key: ${BREVO_API_KEY:}
+    # Must be a sender verified in Brevo (Senders, Domains & Dedicated IPs -> Senders -- a one-click
+    # email confirmation, no domain/DNS needed). Unlike Resend's domain-gated sandbox, a
+    # single-sender-verified Brevo account can send to any recipient, not just its own address.
+    from: ${MAIL_FROM:dominicj407@gmail.com}
   jwt:
     # Externalized the same way DB credentials are (backend/.env, gitignored, loaded by
     # spring-dotenv) -- the previous hardcoded default was committed to a public repo, so anyone

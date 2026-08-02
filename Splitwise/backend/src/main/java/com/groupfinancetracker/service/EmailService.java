@@ -15,24 +15,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Sends via Resend's HTTPS REST API rather than raw SMTP -- Render (like most PaaS hosts) blocks
+ * Sends via Brevo's HTTPS REST API rather than raw SMTP -- Render (like most PaaS hosts) blocks
  * outbound SMTP ports entirely to prevent abuse, so a normal JavaMailSender/SMTP connection times
  * out from there no matter which server or credentials it's pointed at. A plain HTTPS POST isn't
- * subject to that block.
+ * subject to that block. Brevo's single-sender verification (one-click email confirmation, no
+ * domain/DNS needed) also lifts the "only your own inbox" sandbox restriction that Resend's
+ * domain-only verification imposes, so this can send to any registered user.
  */
 @Service
 @Slf4j
 public class EmailService {
 
-    private static final URI RESEND_ENDPOINT = URI.create("https://api.resend.com/emails");
+    private static final URI BREVO_ENDPOINT = URI.create("https://api.brevo.com/v3/smtp/email");
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${app.mail.resend-api-key}")
-    private String resendApiKey;
+    @Value("${app.mail.brevo-api-key}")
+    private String brevoApiKey;
 
     @Value("${app.mail.from}")
     private String fromEmail;
@@ -54,18 +56,19 @@ public class EmailService {
         send(toEmail, "Your SplitWise Password Has Been Changed", buildPasswordChangedHtml(name));
     }
 
-    // ─── Resend HTTPS API call ─────────────────────────────────────────────────
+    // ─── Brevo HTTPS API call ──────────────────────────────────────────────────
 
     private void send(String toEmail, String subject, String html) {
         try {
             String body = objectMapper.writeValueAsString(Map.of(
-                    "from", fromEmail,
-                    "to", List.of(toEmail),
+                    "sender", Map.of("email", fromEmail, "name", "SplitWise"),
+                    "to", List.of(Map.of("email", toEmail)),
                     "subject", subject,
-                    "html", html));
-            HttpRequest request = HttpRequest.newBuilder(RESEND_ENDPOINT)
-                    .header("Authorization", "Bearer " + resendApiKey)
+                    "htmlContent", html));
+            HttpRequest request = HttpRequest.newBuilder(BREVO_ENDPOINT)
+                    .header("api-key", brevoApiKey)
                     .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
                     .timeout(Duration.ofSeconds(15))
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
